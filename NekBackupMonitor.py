@@ -13,8 +13,8 @@ class NekBackupMonitor(object):
 	sqlite_file = 'NekBackupMonitor.db';
 	tableSchedules = 'schedules';
 	tableReports = 'reports';
-	fromEmail = 'empire@adslgr.com';
-	toEmail = 'empire@adslgr.com';
+	fromEmail = 'email@example.com';
+	toEmail = 'email@example.com';
 
 	NOTIFY_OK = 1;
 	NOTIFY_ERROR = 2;
