@@ -20,11 +20,10 @@ class NekBackupMonitor(object):
 	NOTIFY_ERROR = 2;
 
 	# Connecting to the database file
-	conn = sqlite3.connect(sqlite_file);
-	conn.row_factory = sqlite3.Row;
+	conn = sqlite3.connect(sqlite_file); # @UndefinedVariable
+	conn.row_factory = sqlite3.Row; # @UndefinedVariable
 	
 	def __init__(self):
-		c = self.conn.cursor();
 		
 		parser = argparse.ArgumentParser(prog='nekbackupmonitor.py');
 
@@ -96,11 +95,11 @@ class NekBackupMonitor(object):
 			try:
 				c.execute("INSERT INTO {tn} (id, Schedule, date, Result) VALUES (NULL, {scheduleid}, {date}, {result})".\
 				format(tn=self.tableReports, scheduleid=args.SCHEDULE_ID, date=args.DATETIME, result=args.RESULT))
-			except sqlite3.IntegrityError:
-				print('ERROR: ID already exists in PRIMARY KEY column {}'.format(id_column))
+			except sqlite3.IntegrityError: # @UndefinedVariable
+				print('ERROR: ID already exists in PRIMARY KEY column')
 				
-			conn.commit()
-			conn.close()
+			conn.commit() # @UndefinedVariable
+			conn.close() # @UndefinedVariable
 		else:
 			print('ERROR: Schedule {} does not exist'.format(args.SCHEDULE_ID));
 			
@@ -152,10 +151,9 @@ class NekBackupMonitor(object):
 		if(args.DATE):
 			try:
 				dateForChecking = datetime.datetime.strptime(args.DATE, "%Y-%m-%d");
-				self.checkReportsByDate(dateForChecking);
 			except:
 				print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd (e.g. 2015-03-16)".format(d=args.DATE));
-		
+			self.checkReportsByDate(dateForChecking);
 	
 	def notify(self, message, notifyType):
 		todayText = datetime.datetime.now();
@@ -217,44 +215,42 @@ class NekBackupMonitor(object):
 			
 			base = d1;
 			#itr = croniter(schedule['interval'], base)
-			itr = croniter("* * 1,15 * *", base)
+			#itr = croniter("* * 1,12,31,27 * *", base)
+			#itr = croniter("0 12 * * *", base)
 			scheduleNextIeration = itr.get_next();
 			print("Schedule {n} with id {i} and interval {int} next backup date scheduled = {ni}".format(n=schedule['title'], i=schedule['id'],int=schedule['interval'], ni=self.unixToDate(scheduleNextIeration)) + "\n");
 			
 			# check if it is scheduled for the date of checking
-			if(scheduleNextIeration >= d1 and scheduleNextIeration) {
+			if(scheduleNextIeration >= d1Timestamp and scheduleNextIeration <= d2Timestamp):
 				print("Scheduled date is between the checking date");
-			} else {
-				print("Scheduled date {nsd}is NOT between the checking date {cd}".format(nsd=self.unixToDate(scheduleNextIeration), cd=dateForChecking));
-			}
-
-			for scheduleDone in schedulesDone:
-				if(schedule['id'] == scheduleDone['Schedule']):
-					isTried = True;
-					#print("result = {s}".format(s=scheduleDone['result']));
-					if(scheduleDone['result'] == 1):
-						isDone = True;
-					elif(scheduleDone['result'] == 0):
-						hadError = True;
-			
-			#print("isTried = {t}, isDone = {d}, hadError = {e}".format(t=isTried,d=isDone,e=hadError));
-			
-			if(isTried == True):
-				if(isDone == True and hadError == True):
-					reportText += "Schedule {n} with id {i} is done But had error tries".format(n=schedule['title'], i=schedule['id']) + "\n";
-				elif(isDone == True and hadError == False):
-					reportText += "Schedule {n} with id {i} is done".format(n=schedule['title'], i=schedule['id']) + "\n";
-				elif(hadError == True):
-					allOK = False;
-					reportText += "Schedule {n} with id {i} had Error(s)".format(n=schedule['title'], i=schedule['id']) + "\n";
+				for scheduleDone in schedulesDone:
+					if(schedule['id'] == scheduleDone['Schedule']):
+						isTried = True;
+						#print("result = {s}".format(s=scheduleDone['result']));
+						if(scheduleDone['result'] == 1):
+							isDone = True;
+						elif(scheduleDone['result'] == 0):
+							hadError = True;
+				
+				#print("isTried = {t}, isDone = {d}, hadError = {e}".format(t=isTried,d=isDone,e=hadError));
+				
+				if(isTried == True):
+					if(isDone == True and hadError == True):
+						reportText += "Schedule {n} with id {i} is done But had error tries".format(n=schedule['title'], i=schedule['id']) + "\n";
+					elif(isDone == True and hadError == False):
+						reportText += "Schedule {n} with id {i} is done".format(n=schedule['title'], i=schedule['id']) + "\n";
+					elif(hadError == True):
+						allOK = False;
+						reportText += "Schedule {n} with id {i} had Error(s)".format(n=schedule['title'], i=schedule['id']) + "\n";
+					else:
+						allOK = False;
+						reportText += "Schedule {n} with id {i} had been Tried but not done and no Error(s)".format(n=schedule['title'], i=schedule['id']) + "\n";
 				else:
 					allOK = False;
-					reportText += "Schedule {n} with id {i} had been Tried but not done and no Error(s)".format(n=schedule['title'], i=schedule['id']) + "\n";
+					reportText += "Schedule {n} with id {i} wasn't tried at all".format(n=schedule['title'], i=schedule['id']) + "\n";
 			else:
-				allOK = False;
-				reportText += "Schedule {n} with id {i} wasn't tried at all".format(n=schedule['title'], i=schedule['id']) + "\n";
-				
-		
+				print("Scheduled date {nsd}is NOT between the checking date {cd}".format(nsd=self.unixToDate(scheduleNextIeration), cd=dateForChecking));
+			
 		if(allOK == True):
 			notifyType = self.NOTIFY_OK;
 		elif(allOK == False):
