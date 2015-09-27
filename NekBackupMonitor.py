@@ -10,7 +10,7 @@ from croniter import croniter
 
 class NekBackupMonitor(object):
 	
-	sqlite_file = 'NekBackupMonitor.db';
+	sqlite_file = './NekBackupMonitor.db';
 	tableSchedules = 'schedules';
 	tableReports = 'reports';
 	fromEmail = 'email@example.com';
@@ -31,9 +31,10 @@ class NekBackupMonitor(object):
 		p_report.add_argument('SCHEDULE_ID', type=int, help='report schedule id');
 		p_report.add_argument('DATETIME', type=str, help='report time');
 		p_report.add_argument('RESULT', type=int, help='report time');
+		p_report.add_argument('-m', '--message', help='report time');
 		
 		p_check = argparse.ArgumentParser(add_help=False);
-		p_check.add_argument('DATE', type=str, help='Date. The format is YYYY-mm-dd (e.g. 2015-03-16)');
+		p_check.add_argument('-d', '--date', type=str, help='Date. The format is YYYY-mm-dd (e.g. 2015-03-16)');
 
 		sp = parser.add_subparsers();
 		sp_list_schedules = sp.add_parser('list-schedules', help='Lists schedules');
@@ -88,34 +89,26 @@ class NekBackupMonitor(object):
 	def addReport(self, args):
 		print("Adding report with the following details Schedule = {s}, Datetime = {d}, Result = {r}".format(s=args.SCHEDULE_ID, d=args.DATETIME, r=args.RESULT));
 		
+		if(args.DATETIME):
+			try:
+				datetimeReport = datetime.datetime.strptime(args.DATETIME, "%Y-%m-%d %H:%M:%S");
+			except:
+				print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd (e.g. 2015-03-16)".format(d=args.DATE));
+				exit(1);
+			
 		if(self.scheduleExists(args.SCHEDULE_ID) == True):
 			c = self.conn.cursor();
 
-			# A) Inserts an ID with a specific value in a second column 
 			try:
-				c.execute("INSERT INTO {tn} (id, Schedule, date, Result) VALUES (NULL, {scheduleid}, {date}, {result})".\
-				format(tn=self.tableReports, scheduleid=args.SCHEDULE_ID, date=args.DATETIME, result=args.RESULT))
-			except sqlite3.IntegrityError: # @UndefinedVariable
-				print('ERROR: ID already exists in PRIMARY KEY column')
+				c.execute("INSERT INTO {tn} (id, Schedule, date, Result, message) VALUES (NULL, {scheduleid}, {date}, {result}, \"{message}\")".\
+				format(tn=self.tableReports, scheduleid=args.SCHEDULE_ID, date=datetimeReport.timestamp(), result=args.RESULT, message=args.message))
+			except sqlite3.Error as e: # @UndefinedVariable
+				print("An error occurred: " + e.args[0]) # @UndefinedVariable
 				
-			conn.commit() # @UndefinedVariable
-			conn.close() # @UndefinedVariable
+			self.conn.commit() # @UndefinedVariable
+			self.conn.close() # @UndefinedVariable
 		else:
 			print('ERROR: Schedule {} does not exist'.format(args.SCHEDULE_ID));
-			
-
-		'''
-		# B) Tries to insert an ID (if it does not exist yet)
-		# with a specific value in a second column 
-		c.execute("INSERT OR IGNORE INTO {tn} ({idf}, {cn}) VALUES (123456, 'test')".\
-			format(tn=table_name, idf=id_column, cn=column_name))
-
-		# C) Updates the newly inserted or pre-existing entry            
-		c.execute("UPDATE {tn} SET {cn}=('Hi World') WHERE {idf}=(123456)".\
-			format(tn=table_name, cn=column_name, idf=id_column))
-		'''
-		
-		
 	
 	def unixToDate(self, reportTimestamp):
 		return datetime.datetime.fromtimestamp(reportTimestamp).strftime('%Y-%m-%d %H:%M:%S');
@@ -148,11 +141,18 @@ class NekBackupMonitor(object):
 			return False;
 	
 	def checkReports(self, args):
-		if(args.DATE):
+		if(args.date):
 			try:
-				dateForChecking = datetime.datetime.strptime(args.DATE, "%Y-%m-%d");
+				dateForChecking = datetime.datetime.strptime(args.date, "%Y-%m-%d");
 			except:
-				print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd (e.g. 2015-03-16)".format(d=args.DATE));
+				print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd (e.g. 2015-03-16)".format(d=args.date));
+				exit(0);
+			self.checkReportsByDate(dateForChecking);
+		else:
+			# dafault: check yesterday's date. 
+			dateForChecking = datetime.datetime.now();
+			# get current date and substract 1
+			dateForChecking = dateForChecking - datetime.timedelta(days=1);
 			self.checkReportsByDate(dateForChecking);
 	
 	def notify(self, message, notifyType):
@@ -214,7 +214,7 @@ class NekBackupMonitor(object):
 			hadError = False;
 			
 			base = d1;
-			#itr = croniter(schedule['interval'], base)
+			itr = croniter(schedule['interval'], base)
 			#itr = croniter("* * 1,12,31,27 * *", base)
 			#itr = croniter("0 12 * * *", base)
 			scheduleNextIeration = itr.get_next();
