@@ -155,7 +155,8 @@ class croniter(object):
         if d.tzinfo is not None:
             d = d.replace(tzinfo=None) - d.utcoffset()
 
-        return (d - datetime.datetime(1970, 1, 1)).total_seconds()
+        td = (d - datetime.datetime(1970, 1, 1));
+        return (td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / 10**6
 
     def _timestamp_to_datetime(self, timestamp):
         """
