@@ -192,7 +192,9 @@ class NekBackupMonitor(object):
 	def formatReportResult(self, reportResult):
 		formmatedResult = '';
 		if(reportResult == 1):
-			formmatedResult = 'DONE';
+			formmatedResult = 'OK';
+		if(reportResult == 2):
+			formmatedResult = 'OK AND VERIFIED';
 		elif(reportResult == 0):
 			formmatedResult = 'ERROR';
 		
@@ -336,10 +338,11 @@ class NekBackupMonitor(object):
 		index = 0;
 		allOK = True;
 		
-		reportTableText += "ID    Title              Result              " + "\n";
+		reportTableText += "ID    Title              Result              	Verified" + "\n";
 		for schedule in allSchedules:
 			isTried = False;
 			isDone = False;
+			isVerified = False;
 			hadError = False;
 			
 			base = d1;
@@ -352,6 +355,8 @@ class NekBackupMonitor(object):
 			#reportRow = str(index);
 			reportTableText += "{id:5.5} {title:18.18} ".format(id=str(schedule['id']), title=str(schedule['title']));
 			
+			resultText = '';
+			verifiedText = '';
 			# check if it is scheduled for the date of checking
 			if(scheduleNextIeration >= d1Timestamp and scheduleNextIeration <= d2Timestamp):
 				#print("Scheduled date is between the checking date");
@@ -361,6 +366,9 @@ class NekBackupMonitor(object):
 						#print("result = {s}".format(s=scheduleDone['result']));
 						if(scheduleDone['result'] == 1):
 							isDone = True;
+						if(scheduleDone['result'] == 2):
+							isDone = True;
+							isVerified = True;
 						elif(scheduleDone['result'] == 0):
 							hadError = True;
 				
@@ -368,28 +376,36 @@ class NekBackupMonitor(object):
 				
 				if(isTried == True):
 					if(isDone == True and hadError == True):
-						reportTableText += "OK (with retries)" + "\n";
+						resultText += "OK (with retries)";
 						reportText += "Schedule {n} with id {i} is done But had error tries".format(n=schedule['title'], i=schedule['id']) + "\n";
 					elif(isDone == True and hadError == False):
-						reportTableText += "OK" + "\n";
+						resultText += "OK";
 						reportText += "Schedule {n} with id {i} is done".format(n=schedule['title'], i=schedule['id']) + "\n";
 					elif(hadError == True):
 						allOK = False;
-						reportTableText += "ERROR" + "\n";
+						resultText += "ERROR";
 						reportText += "Schedule {n} with id {i} had Error(s)".format(n=schedule['title'], i=schedule['id']) + "\n";
 					else:
 						allOK = False;
-						reportTableText += "Tried with ERROR" + "\n";
+						resultText += "Tried with ERROR";
 						reportText += "Schedule {n} with id {i} had been Tried but not done and no Error(s)".format(n=schedule['title'], i=schedule['id']) + "\n";
+					
+					if(isVerified == True):
+						verifiedText += "	VERIFIED";
+						reportText += "Schedule {n} with id {i} is verified".format(n=schedule['title'], i=schedule['id']) + "\n";
+					else:
+						verifiedText += "	NO";
+						reportText += "Schedule {n} with id {i} is not verified".format(n=schedule['title'], i=schedule['id']) + "\n";
 				else:
 					allOK = False;
-					reportTableText += "NO TRIES AT ALL" + "\n";
+					resultText += "Missing";
 					reportText += "Schedule {n} with id {i} wasn't tried at all".format(n=schedule['title'], i=schedule['id']) + "\n";
 			else:
-				reportTableText += "Not scheduled" + "\n";
+				resultText += "Not scheduled" + "\n";
 				#reportText += "Schedule {n} with id {i} wasn't tried at all".format(n=schedule['title'], i=schedule['id']) + "\n";
 				reportText += "Schedule {n} was not scheduled for the date".format(n=schedule['title']);
 			
+			reportTableText += "{result:18.18} {verified:9.9}\n".format(result=resultText, verified=verifiedText);
 		if(allOK == True):
 			notifyType = self.NOTIFY_OK;
 		elif(allOK == False):
