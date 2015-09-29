@@ -38,6 +38,7 @@ class NekBackupMonitor(object):
 		p_check = argparse.ArgumentParser(add_help=False);
 		p_check.add_argument('-d', '--date', type=str, help='Date. The format is YYYY-mm-dd (e.g. 2015-03-16)');
 		p_check.add_argument('-m', '--email', action="store_true", help='Also email the report.');
+		p_check.add_argument('-b', '--days', type=str, help='Number of days prior. Do a check for the date that is that many days prior.');
 		
 		p_schedules = argparse.ArgumentParser(add_help=False);
 		p_schedules.add_argument('-f', '--full', action="store_true", help='List with full details.');
@@ -254,9 +255,11 @@ class NekBackupMonitor(object):
 	def formatReportResult(self, reportResult):
 		formmatedResult = '';
 		if(reportResult == 1):
-			formmatedResult = 'OK';
-		if(reportResult == 2):
+			formmatedResult = 'OK (unverified)';
+		elif(reportResult == 2):
 			formmatedResult = 'OK AND VERIFIED';
+		elif(reportResult == 3):
+			formmatedResult = 'OK BUT WITH VERIFICATION ERROR';
 		elif(reportResult == 0):
 			formmatedResult = 'ERROR';
 		
@@ -319,8 +322,24 @@ class NekBackupMonitor(object):
 				exit(0);
 			self.checkReportsByDate(dateForChecking, doEmailReport);
 		else:
-			# dafault: check yesterday's date. 
-			dateForChecking = datetime.datetime.now();
+			if(args.days):
+				try:
+					numberOfdaysBeforeCheckDate = int(args.days)
+				except ValueError:
+					print("Number of Days must be an positive integer e.g. 5 or 120")
+					exit(1);
+					
+				if(numberOfdaysBeforeCheckDate < 1 or numberOfdaysBeforeCheckDate > 40000):
+					print("Number of Days must be an positive integer e.g. 5 or 120")
+					exit(1);
+					
+				dateForChecking = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
+				dateForChecking = dateForChecking - datetime.timedelta(days=numberOfdaysBeforeCheckDate);
+				
+			else:
+				# dafault: check yesterday's date. 
+				dateForChecking = datetime.datetime.now();
+				
 			# get current date and substract 1
 			dateForChecking = dateForChecking - datetime.timedelta(days=1);
 			self.checkReportsByDate(dateForChecking, doEmailReport);
@@ -414,6 +433,7 @@ class NekBackupMonitor(object):
 			isDone = False;
 			isVerified = False;
 			hadError = False;
+			hasVerificationErrors = False;
 			
 			base = d1;
 			itr = croniter(schedule['interval'], base)
@@ -439,6 +459,10 @@ class NekBackupMonitor(object):
 						if(scheduleDone['result'] == 2):
 							isDone = True;
 							isVerified = True;
+						if(scheduleDone['result'] == 3):
+							isDone = True;
+							isVerified = False;
+							hasVerificationErrors = True;
 						elif(scheduleDone['result'] == 0):
 							hadError = True;
 				
@@ -464,8 +488,12 @@ class NekBackupMonitor(object):
 						verifiedText += "	VERIFIED";
 						reportText += "Schedule {n} with id {i} is verified".format(n=schedule['title'], i=schedule['id']) + "\n";
 					else:
-						verifiedText += "	NO";
-						reportText += "Schedule {n} with id {i} is not verified".format(n=schedule['title'], i=schedule['id']) + "\n";
+						if(hasVerificationErrors == True):
+							verifiedText += "	VERIFICATION ERROR";
+							reportText += "Schedule {n} with id {i} has verification errors.".format(n=schedule['title'], i=schedule['id']) + "\n";
+						else:
+							verifiedText += "	NO";
+							reportText += "Schedule {n} with id {i} is not verified".format(n=schedule['title'], i=schedule['id']) + "\n";
 				else:
 					allOK = False;
 					resultText += "Missing";
@@ -475,7 +503,7 @@ class NekBackupMonitor(object):
 				#reportText += "Schedule {n} with id {i} wasn't tried at all".format(n=schedule['title'], i=schedule['id']) + "\n";
 				reportText += "Schedule {n} was not scheduled for the date".format(n=schedule['title']);
 			
-			reportTableText += "{result:18.18} {verified:9.9}\n".format(result=resultText, verified=verifiedText);
+			reportTableText += "{result:18.18} {verified:20.20}\n".format(result=resultText, verified=verifiedText);
 		if(allOK == True):
 			notifyType = self.NOTIFY_OK;
 		elif(allOK == False):
@@ -491,8 +519,10 @@ class NekBackupMonitor(object):
 		
 	def formatForTextDisplay(self, stringText):
 		stringTextFormatted = stringText.replace('OK', bcolors.OKGREEN + "OK" + bcolors.ENDC);
+		stringTextFormatted = stringText.replace('OK AND VERIFIED', bcolors.OKGREEN + "OK AND VERIFIED" + bcolors.ENDC);
 		stringTextFormatted = stringTextFormatted.replace('(with retries)', bcolors.WARNING + "(with retries)" + bcolors.ENDC);
 		stringTextFormatted = stringTextFormatted.replace('NO', bcolors.WARNING + "NO" + bcolors.ENDC);
+		stringTextFormatted = stringTextFormatted.replace('VERIFICATION ERROR', bcolors.FAIL + "VERIFICATION ERROR" + bcolors.ENDC);
 		stringTextFormatted = stringTextFormatted.replace('ERROR', bcolors.FAIL + "ERROR" + bcolors.ENDC);
 		stringTextFormatted = stringTextFormatted.replace('Missing', bcolors.FAIL + "Missing" + bcolors.ENDC);
 		stringTextFormatted = stringTextFormatted.replace('VERIFIED', bcolors.OKGREEN + "VERIFIED" + bcolors.ENDC);
@@ -500,8 +530,10 @@ class NekBackupMonitor(object):
 	
 	def formatForHTMLDisplay(self, stringText):
 		stringHTMLFormatted = stringText.replace('OK', "<span style='color: green;'>" + "OK" + "</span>");
+		stringHTMLFormatted = stringText.replace('OK AND VERIFIED', "<span style='color: green;'>" + "OK AND VERIFIED" + "</span>");
 		stringHTMLFormatted = stringHTMLFormatted.replace('(with retries)', "<span style='color: darkorange;'>" + "(with retries)" + "</span>");
 		stringHTMLFormatted = stringHTMLFormatted.replace('NO', "<span style='color: darkorange;'>" + "NO" + "</span>");
+		stringHTMLFormatted = stringHTMLFormatted.replace('VERIFICATION ERROR', "<span style='color: red;'>" + "VERIFICATION ERROR" + "</span>");
 		stringHTMLFormatted = stringHTMLFormatted.replace('ERROR', "<span style='color: red;'>" + "ERROR" + "</span>");
 		stringHTMLFormatted = stringHTMLFormatted.replace('Missing', "<span style='color: red;'>" + "Missing" + "</span>");
 		stringHTMLFormatted = stringHTMLFormatted.replace('VERIFIED', "<span style='color: green;'>" + "VERIFIED" + "</span>");
