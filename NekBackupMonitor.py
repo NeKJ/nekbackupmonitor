@@ -151,19 +151,22 @@ class NekBackupMonitor(object):
 					   numberOfdaysListReports = int(args.days)
 					except ValueError:
 					   print("Number of Days must be an positve integer e.g. 5 or 120")
-					   exit(0);
+					   exit(1);
 					if(numberOfdaysListReports > 0 and numberOfdaysListReports < 40000):
 						listReportsFromDate = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
 						listReportsFromDate = listReportsFromDate - datetime.timedelta(days=numberOfdaysListReports);
 						listReportsToDate = datetime.datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999);
 					else:
 					   print("Number of Days must be an positve integer e.g. 5 or 120")
-					   exit(0);
+					   exit(1);
 				else:
 					listReportsFromDate = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
 					listReportsFromDate = listReportsFromDate - datetime.timedelta(days=7);
 					listReportsToDate = datetime.datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999);
 				
+			if(listReportsToDate < listReportsFromDate):
+				print("To Date must be after the From Date.");
+				exit(1);
 			d1 = listReportsFromDate;
 			d2 = listReportsToDate;
 			#d2 = d1 + datetime.timedelta(days=1);
