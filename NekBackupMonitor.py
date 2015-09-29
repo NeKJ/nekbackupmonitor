@@ -171,7 +171,7 @@ class NekBackupMonitor(object):
 			d2Timestamp = self.totimestamp(d2);
 			print("Listing Reports from date {d1} to {d2}".format(d1=listReportsFromDate.strftime("%Y-%m-%d %H:%M:%S"), d2=listReportsToDate.strftime("%Y-%m-%d %H:%M:%S")));
 			queryString = 'SELECT * FROM {tn} WHERE date BETWEEN {d1} AND {d2} '.format(tn=self.tableReports, d1=d1Timestamp, d2=d2Timestamp)
-			print(queryString);
+			#print(queryString);
 			c.execute(queryString);
 				
 		all_rows = c.fetchall();
