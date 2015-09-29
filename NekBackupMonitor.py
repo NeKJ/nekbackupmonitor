@@ -45,9 +45,13 @@ class NekBackupMonitor(object):
 		p_reports = argparse.ArgumentParser(add_help=False);
 		p_reports.add_argument('-s', '--schedule', type=int, help='ID of schedule. List reports specifically for a schedule.');
 		p_reports.add_argument('-r', '--report', type=int, help='ID of report. List details about a specific report.');
+		p_reports.add_argument('-d', '--date', type=str, help='Date. List reports for a specific date. The format is YYYY-mm-dd (e.g. 2015-03-16)');
+		p_reports.add_argument('-f', '--fromdate', type=str, help='From Date. List reports from a specific date. The format is YYYY-mm-dd (e.g. 2015-03-16)');
+		p_reports.add_argument('-t', '--todate', type=str, help='To Date. List reports up until a specific date. The format is YYYY-mm-dd (e.g. 2015-03-16)');
+		p_reports.add_argument('-b', '--days', type=str, help='Number of days. List reports up from that amount of days.');
 
 		sp = parser.add_subparsers();
-		sp_list_schedules = sp.add_parser('list-schedules', parents=[p_schedules], help='Lists schedules');
+		sp_list_schedules = sp.add_parser('list-schedules', parents=[p_schedules], help='Lists schedules by default from 7 days prior');
 		sp_list_schedules.set_defaults(which='list-schedules');
 		
 		sp_list_reports = sp.add_parser('list-reports', parents=[p_reports], help='Lists reports');
@@ -125,9 +129,51 @@ class NekBackupMonitor(object):
 				print("ERROR: No schedule found with id: " + str(args.schedule));
 				exit(1);
 		else:
-			print("Listing Reports");
-			c.execute('SELECT * FROM {tn}'.format(tn=self.tableReports));
-		
+			if(args.date or args.todate or args.fromdate):
+				if(args.date):
+					listReportsFromDate = self.parseDate(args.date);
+					listReportsFromDate = listReportsFromDate.replace(hour=0, minute=0, second=0, microsecond=0);
+					listReportsToDate = listReportsFromDate.replace(hour=23, minute=59, second=59, microsecond=999999);
+				else:
+					if(args.todate):
+						listReportsToDate = self.parseDate(args.todate);
+						listReportsToDate = listReportsToDate.replace(hour=23, minute=59, second=59, microsecond=999999);
+					else:
+						listReportsToDate = datetime.datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999);
+					if(args.fromdate):
+						listReportsFromDate = self.parseDate(args.fromdate);
+					else:
+						listReportsFromDate = datetime.datetime.min;
+						listReportsFromDate = listReportsFromDate.replace(year=1900);
+			else:
+				if(args.days):
+					try:
+					   numberOfdaysListReports = int(args.days)
+					except ValueError:
+					   print("Number of Days must be an positve integer e.g. 5 or 120")
+					   exit(0);
+					if(numberOfdaysListReports > 0 and numberOfdaysListReports < 40000):
+						listReportsFromDate = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
+						listReportsFromDate = listReportsFromDate - datetime.timedelta(days=numberOfdaysListReports);
+						listReportsToDate = datetime.datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999);
+					else:
+					   print("Number of Days must be an positve integer e.g. 5 or 120")
+					   exit(0);
+				else:
+					listReportsFromDate = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
+					listReportsFromDate = listReportsFromDate - datetime.timedelta(days=7);
+					listReportsToDate = datetime.datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999);
+				
+			d1 = listReportsFromDate;
+			d2 = listReportsToDate;
+			#d2 = d1 + datetime.timedelta(days=1);
+			d1Timestamp = self.totimestamp(d1);
+			d2Timestamp = self.totimestamp(d2);
+			print("Listing Reports from date {d1} to {d2}".format(d1=listReportsFromDate.strftime("%Y-%m-%d %H:%M:%S"), d2=listReportsToDate.strftime("%Y-%m-%d %H:%M:%S")));
+			queryString = 'SELECT * FROM {tn} WHERE date BETWEEN {d1} AND {d2} '.format(tn=self.tableReports, d1=d1Timestamp, d2=d2Timestamp)
+			print(queryString);
+			c.execute(queryString);
+				
 		all_rows = c.fetchall();
 		index = 0;
 		templateColumns = "{index:4.4} {id:4.4} {schedule:25.25} {date:20.20} {result:15.15}";
@@ -215,6 +261,14 @@ class NekBackupMonitor(object):
 	
 	def unixToDate(self, reportTimestamp):
 		return datetime.datetime.fromtimestamp(reportTimestamp).strftime('%Y-%m-%d %H:%M:%S');
+	
+	def parseDate(self, stringDate):
+		try:
+			date = datetime.datetime.strptime(stringDate, "%Y-%m-%d");
+		except:
+			print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd (e.g. 2015-03-16)".format(d=stringDate));
+			exit(1);
+		return date;
 	
 	# Converts datetime to UTC timestamp (UTC is important)
 	def totimestamp(self, dt):

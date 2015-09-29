@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS "Schedules" (
     "DestinationDir" TEXT NOT NULL,
     "Type" INTEGER NOT NULL
 );
-CREATE TABLE sqlite_sequence(name,seq);
 CREATE TABLE reports (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     "Schedule" INTEGER NOT NULL,
