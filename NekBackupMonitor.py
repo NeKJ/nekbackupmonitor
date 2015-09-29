@@ -76,33 +76,38 @@ class NekBackupMonitor(object):
 		all_rows = self.getAllSchedules();
 		
 		if(args.full):
-			print("#	ID		Title			Interval		SourceHost		DestHost		SourceDir		DestDir		Type");
+			templateColumns = "{index:4.4} {id:4.4} {title:15.15} {interval:>12.12} {sourcehost:10.10} {destinationhost:20.20} {sourcedir:30.30} {destinationdir:30.30} {type:2.2}";
+			reportHeader = templateColumns.format(index="#", id="ID", title="Title", 
+												interval="Interval", sourcehost="SourceHost", 
+												destinationhost="DestinationHost", 
+												sourcedir="SourceDir", destinationdir="DestinationDir", 
+												type="Type");
+			print(reportHeader);
 			index = 0;
 			for row in all_rows:
 				index = index + 1;
-				reportRow = str(index);
-				reportRow += '  ' + str(row['id']);
-				reportRow += '  ' + str(row['title']);
-				reportRow += '		' + str(row['interval']);
-				reportRow += '		' + str(row['sourcehost']);
-				reportRow += '		' + str(row['destinationhost']);
-				reportRow += '		' + str(row['sourcedir']);
-				reportRow += '		' + str(row['destinationdir']);
-				reportRow += '		' + str(row['type']);
-				print(reportRow);
+				reportRow = templateColumns.format(index=str(index), id=str(row['id']), 
+												title=str(row['title']), interval=str(row['interval']), 
+												sourcehost=str(row['sourcehost']), 
+												destinationhost=str(row['destinationhost']),
+												sourcedir=str(row['sourcedir']),
+												destinationdir=str(row['destinationdir']),
+												type=str(row['type']));
+				print(self.formatForTextDisplay(reportRow));
 		else:
-			print("#	ID	Title			Interval		SourceHost		DestHost");
+			templateColumns = "{index:4.4} {id:4.4} {title:15.15} {interval:>12.12} {sourcehost:15.15} {destinationhost:15.15}";
+			reportHeader = templateColumns.format(index="#", id="ID", title="Title", 
+												interval="Interval", sourcehost="SourceHost", 
+												destinationhost="DestHost");
+			print(reportHeader);
 			index = 0;
 			for row in all_rows:
 				index = index + 1;
-				reportRow = str(index);
-				reportRow += '	' + str(row['id']);
-				reportRow += '	' + str(row['title']);
-				reportRow += '		' + str(row['interval']);
-				reportRow += '		' + str(row['sourcehost']);
-				reportRow += '		' + str(row['destinationhost']);
-				print(reportRow);
-			
+				reportRow = templateColumns.format(index=str(index), id=str(row['id']), 
+												title=str(row['title']), interval=str(row['interval']), 
+												sourcehost=str(row['sourcehost']), 
+												destinationhost=str(row['destinationhost']));
+				print(self.formatForTextDisplay(reportRow));
 		
 	def listReports(self, args):
 		c = self.conn.cursor();
@@ -125,16 +130,24 @@ class NekBackupMonitor(object):
 		
 		all_rows = c.fetchall();
 		index = 0;
-		print("#		ID		Schedule		Date			Result");
+		templateColumns = "{index:4.4} {id:4.4} {schedule:25.25} {date:20.20} {result:15.15}";
+		reportHeader = templateColumns.format(index="#", id="ID", schedule="Schedule (id)", 
+											date="Date", result="Result");
+											
+		print(reportHeader);
 		for row in all_rows:
 			index = index + 1;
-			reportRow = str(index);
-			reportRow += '		' + str(row['id']);
-			reportRow += '		' + str(row['Schedule']);
-			reportRow += '			' + self.unixToDate(row['date']);
-			reportRow += '	' + self.formatReportResult(row['Result']);
-			#reportRow += 'message: ' + row['message'];
-			print(reportRow);
+			scheduleTitle = 'N/A';
+			
+			schedule = self.getSchedule(row['schedule']);
+			if(schedule):
+				scheduleTitle = schedule['title'];
+			
+			reportRow = templateColumns.format(index=str(index), id=str(row['id']), 
+											schedule=scheduleTitle + ' (' + str(row['schedule']) + ')', 
+											date=self.unixToDate(row['date']), 
+											result=self.formatReportResult(row['Result']));
+			print(self.formatForTextDisplay(reportRow));
 	
 	def displayReport(self, reportId):
 		c = self.conn.cursor();
@@ -150,7 +163,7 @@ class NekBackupMonitor(object):
 			reportRow += 'Date: ' + self.unixToDate(row['date']) + "\n";
 			reportRow += 'Result: ' + self.formatReportResult(row['Result']) + "\n";
 			reportRow += 'Message:\n' + row['message'].replace('\\n', "\n") + "\n";
-			print(reportRow);
+			print(self.formatForTextDisplay(reportRow));
 		else:
 			print("ERROR: No report found with id: " + str(reportId));
 			exit(1);
@@ -410,12 +423,42 @@ class NekBackupMonitor(object):
 			notifyType = self.NOTIFY_OK;
 		elif(allOK == False):
 			notifyType = self.NOTIFY_ERROR;
-		reportTableText += "\n\nReport created on {s}".format(s=datetime.datetime.now());
-		print(reportTableText);
+		reportTableText += "\n\nReport created on {s}".format(s=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"));
+		
+		print(self.formatForTextDisplay(reportTableText));
+		
+		
 		#print(reportText);
 		if(doEmailReport == True):
-			self.notify(reportTableText, notifyType);
+			self.notify(self.formatForHTMLDisplay(reportTableText), notifyType);
 		
+	def formatForTextDisplay(self, stringText):
+		stringTextFormatted = stringText.replace('OK', bcolors.OKGREEN + "OK" + bcolors.ENDC);
+		stringTextFormatted = stringTextFormatted.replace('(with retries)', bcolors.WARNING + "(with retries)" + bcolors.ENDC);
+		stringTextFormatted = stringTextFormatted.replace('NO', bcolors.WARNING + "NO" + bcolors.ENDC);
+		stringTextFormatted = stringTextFormatted.replace('ERROR', bcolors.FAIL + "ERROR" + bcolors.ENDC);
+		stringTextFormatted = stringTextFormatted.replace('Missing', bcolors.FAIL + "Missing" + bcolors.ENDC);
+		stringTextFormatted = stringTextFormatted.replace('VERIFIED', bcolors.OKGREEN + "VERIFIED" + bcolors.ENDC);
+		return stringTextFormatted;
+	
+	def formatForHTMLDisplay(self, stringText):
+		stringHTMLFormatted = stringText.replace('OK', "<span style='color: green;'>" + "OK" + "</span>");
+		stringHTMLFormatted = stringHTMLFormatted.replace('(with retries)', "<span style='color: darkorange;'>" + "(with retries)" + "</span>");
+		stringHTMLFormatted = stringHTMLFormatted.replace('NO', "<span style='color: darkorange;'>" + "NO" + "</span>");
+		stringHTMLFormatted = stringHTMLFormatted.replace('ERROR', "<span style='color: red;'>" + "ERROR" + "</span>");
+		stringHTMLFormatted = stringHTMLFormatted.replace('Missing', "<span style='color: red;'>" + "Missing" + "</span>");
+		stringHTMLFormatted = stringHTMLFormatted.replace('VERIFIED', "<span style='color: green;'>" + "VERIFIED" + "</span>");
+		
+		return stringHTMLFormatted;
 
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
 if __name__ == '__main__':
 	NekBackupMonitor()
