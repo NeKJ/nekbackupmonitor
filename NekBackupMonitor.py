@@ -1,14 +1,13 @@
 #!/usr/bin/python2
 
-import argparse
-import sys
-import sqlite3
-import datetime
-import time
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from subprocess import Popen, PIPE
-from croniter import croniter
+import argparse;
+import sqlite3;
+import datetime;
+import time;
+from email.mime.text import MIMEText;
+from email.mime.multipart import MIMEMultipart;
+from subprocess import Popen, PIPE;
+from croniter import croniter;
 
 class NekBackupMonitor(object):
 	
@@ -31,9 +30,10 @@ class NekBackupMonitor(object):
 
 		p_report = argparse.ArgumentParser(add_help=False);
 		p_report.add_argument('SCHEDULE_ID', type=int, help='report schedule id');
-		p_report.add_argument('DATETIME', type=str, help='report time');
-		p_report.add_argument('RESULT', type=int, help='report time');
-		p_report.add_argument('-m', '--message', help='report time');
+		p_report.add_argument('DATETIME', type=str, help='report date and time');
+		p_report.add_argument('RESULT', type=int, help='report resul');
+		p_report.add_argument('DURATION', type=float, help='report duration');
+		p_report.add_argument('-m', '--message', help='report message');
 		
 		p_check = argparse.ArgumentParser(add_help=False);
 		p_check.add_argument('-d', '--date', type=str, help='Date. The format is YYYY-mm-dd (e.g. 2015-03-16)');
@@ -125,7 +125,7 @@ class NekBackupMonitor(object):
 			selectedSchedule = self.getSchedule(args.schedule);
 			if(selectedSchedule):
 				print("Listing Reports for schedule " + selectedSchedule['title'] + " (ID: " + str(selectedSchedule['id']) + ")");
-				c.execute('SELECT id, Schedule, date, Result, message FROM {tn} WHERE schedule = {si}'.format(tn=self.tableReports, si=args.schedule));
+				c.execute('SELECT id, Schedule, date, Result, duration, message FROM {tn} WHERE schedule = {si}'.format(tn=self.tableReports, si=args.schedule));
 			else:
 				print("ERROR: No schedule found with id: " + str(args.schedule));
 				exit(1);
@@ -149,17 +149,17 @@ class NekBackupMonitor(object):
 			else:
 				if(args.days):
 					try:
-					   numberOfdaysListReports = int(args.days)
+						numberOfdaysListReports = int(args.days)
 					except ValueError:
-					   print("Number of Days must be an positve integer e.g. 5 or 120")
-					   exit(1);
+						print("Number of Days must be an positve integer e.g. 5 or 120")
+						exit(1);
 					if(numberOfdaysListReports > 0 and numberOfdaysListReports < 40000):
 						listReportsFromDate = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
 						listReportsFromDate = listReportsFromDate - datetime.timedelta(days=numberOfdaysListReports);
 						listReportsToDate = datetime.datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999);
 					else:
-					   print("Number of Days must be an positve integer e.g. 5 or 120")
-					   exit(1);
+						print("Number of Days must be an positve integer e.g. 5 or 120")
+						exit(1);
 				else:
 					listReportsFromDate = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
 					listReportsFromDate = listReportsFromDate - datetime.timedelta(days=7);
@@ -180,9 +180,9 @@ class NekBackupMonitor(object):
 				
 		all_rows = c.fetchall();
 		index = 0;
-		templateColumns = "{index:4.4} {id:4.4} {schedule:25.25} {date:20.20} {result:15.15}";
+		templateColumns = "{index:4.4} {id:4.4} {schedule:25.25} {date:20.20} {result:20.20} {duration:9.9}";
 		reportHeader = templateColumns.format(index="#", id="ID", schedule="Schedule (id)", 
-											date="Date", result="Result");
+											date="Date", result="Result", duration="Duration");
 											
 		print(reportHeader);
 		for row in all_rows:
@@ -196,7 +196,8 @@ class NekBackupMonitor(object):
 			reportRow = templateColumns.format(index=str(index), id=str(row['id']), 
 											schedule=scheduleTitle + ' (' + str(row['schedule']) + ')', 
 											date=self.unixToDate(row['date']), 
-											result=self.formatReportResult(row['Result']));
+											result=self.formatReportResult(row['Result']),
+											duration=self.secondsToTime(row['duration']));
 			print(self.formatForTextDisplay(reportRow));
 	
 	def displayReport(self, reportId):
@@ -204,7 +205,7 @@ class NekBackupMonitor(object):
 		
 		print("Listing details for a report");
 		
-		c.execute('SELECT id, Schedule, date, Result, message FROM {tn} WHERE id = {ri}'.format(tn=self.tableReports, ri=reportId));
+		c.execute('SELECT id, Schedule, date, Result, duration, message FROM {tn} WHERE id = {ri}'.format(tn=self.tableReports, ri=reportId));
 		row = c.fetchone();
 		
 		if(row):
@@ -212,6 +213,7 @@ class NekBackupMonitor(object):
 			reportRow += 'Schedule: ' + str(row['Schedule']) + "\n";
 			reportRow += 'Date: ' + self.unixToDate(row['date']) + "\n";
 			reportRow += 'Result: ' + self.formatReportResult(row['Result']) + "\n";
+			reportRow += 'Duration: ' + self.secondsToTime((row['duration'])) + "\n";
 			reportRow += 'Message:\n' + row['message'].replace('\\n', "\n") + "\n";
 			print(self.formatForTextDisplay(reportRow));
 		else:
@@ -227,7 +229,7 @@ class NekBackupMonitor(object):
 		return all_rows;
 
 	def addReport(self, args):
-		print("Adding report with the following details Schedule = {s}, Datetime = {d}, Result = {r}".format(s=args.SCHEDULE_ID, d=args.DATETIME, r=args.RESULT));
+		print("Adding report with the following details Schedule = {s}, Datetime = {d}, Result = {r}, Duration = {dr}".format(s=args.SCHEDULE_ID, d=args.DATETIME, r=args.RESULT, dr=args.DURATION));
 		
 		if(args.DATETIME):
 			try:
@@ -235,22 +237,32 @@ class NekBackupMonitor(object):
 			except:
 				print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd HH:MM:SS (e.g. 2015-03-16 12:51:23)".format(d=args.DATETIME));
 				exit(1);
-			
+		
+		if(args.DURATION >= 0):
+				try:
+					reportsDuration = float(args.DURATION)
+					if(reportsDuration < 0):
+						print("Duration must be zero or a positive real e.g. 0.0, 5 or 120")
+						exit(1);
+				except ValueError:
+					print("Duration must be zero or a positive real e.g. 0.0, 5 or 120")
+					exit(1);
+		
 		if(self.scheduleExists(args.SCHEDULE_ID) == True):
 			c = self.conn.cursor();
 
 			Reporttimestamp = self.totimestamp(datetimeReport);
 			
 			try:
-				c.execute("INSERT INTO {tn} (id, Schedule, date, Result, message) VALUES (NULL, {scheduleid}, {date}, {result}, \"{message}\")".\
-				format(tn=self.tableReports, scheduleid=args.SCHEDULE_ID, date=Reporttimestamp, result=args.RESULT, message=args.message))
+				c.execute("INSERT INTO {tn} (id, Schedule, date, Result, duration, message) VALUES (NULL, {scheduleid}, {date}, {result}, {duration}, \"{message}\")".\
+				format(tn=self.tableReports, scheduleid=args.SCHEDULE_ID, date=Reporttimestamp, result=args.RESULT, duration=reportsDuration, message=args.message));
 			except sqlite3.Error as e: # @UndefinedVariable
 				print("An error occurred: " + e.args[0]) # @UndefinedVariable
 				
 			self.conn.commit() # @UndefinedVariable
 			self.conn.close() # @UndefinedVariable
 		else:
-			print('ERROR: Schedule {} does not exist'.format(args.SCHEDULE_ID));
+			print('ERROR: Schedule {s} does not exist'.format(s=args.SCHEDULE_ID));
 	
 	def formatReportResult(self, reportResult):
 		formmatedResult = '';
@@ -259,7 +271,7 @@ class NekBackupMonitor(object):
 		elif(reportResult == 2):
 			formmatedResult = 'OK AND VERIFIED';
 		elif(reportResult == 3):
-			formmatedResult = 'OK BUT WITH VERIFICATION ERROR';
+			formmatedResult = 'VERIFICATION ERROR';
 		elif(reportResult == 0):
 			formmatedResult = 'ERROR';
 		
@@ -267,6 +279,11 @@ class NekBackupMonitor(object):
 	
 	def unixToDate(self, reportTimestamp):
 		return datetime.datetime.fromtimestamp(reportTimestamp).strftime('%Y-%m-%d %H:%M:%S');
+	
+	def secondsToTime(self, seconds):
+		m, s = divmod(seconds, 60)
+		h, m = divmod(m, 60)
+		return "%d:%02d:%02d" % (h, m, s);
 	
 	def parseDate(self, stringDate):
 		try:
@@ -280,7 +297,7 @@ class NekBackupMonitor(object):
 	def totimestamp(self, dt):
 		timestamp = time.mktime(dt.timetuple()); # DO NOT USE IT WITH UTC DATE
 		return timestamp; 
-   
+
 	def scheduleExists(self, scheduleId):
 		c = self.conn.cursor();
 
@@ -326,11 +343,11 @@ class NekBackupMonitor(object):
 				try:
 					numberOfdaysBeforeCheckDate = int(args.days)
 				except ValueError:
-					print("Number of Days must be an positive integer e.g. 5 or 120")
+					print("Number of Days must be a positive integer e.g. 5 or 120")
 					exit(1);
 					
 				if(numberOfdaysBeforeCheckDate < 1 or numberOfdaysBeforeCheckDate > 40000):
-					print("Number of Days must be an positive integer e.g. 5 or 120")
+					print("Number of Days must be a positive integer e.g. 5 or 120")
 					exit(1);
 					
 				dateForChecking = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
@@ -345,8 +362,6 @@ class NekBackupMonitor(object):
 			self.checkReportsByDate(dateForChecking, doEmailReport);
 	
 	def notify(self, message, notifyType):
-		todayText = datetime.datetime.now();
-		
 		if(notifyType == self.NOTIFY_OK):
 			subject = 'NekBackupMonitor Report';
 		elif(notifyType == self.NOTIFY_ERROR):
@@ -379,7 +394,7 @@ class NekBackupMonitor(object):
 		# Record the MIME types of both parts - text/plain and text/html.
 		part1 = MIMEText(text, 'plain')
 		part2 = MIMEText(html, 'html')
-		 
+
 		# Attach parts into message container.
 		# According to RFC 2046, the last part of a multipart message, in this case
 		# the HTML message, is best and preferred.
@@ -415,35 +430,33 @@ class NekBackupMonitor(object):
 		c.execute(queryString);
 		all_rows = c.fetchall();
 		for row in all_rows:
-			rowDate = self.unixToDate(row['date']);
 			rowSchedule = self.getSchedule(row['Schedule']);
 			#print(rowSchedule);
 			if(rowSchedule != None):
-				schedulesDone.append(row);
-				#print("schedule = {s}, date = {d}, result = {r}".format(s=rowSchedule['id'], d=rowDate, r=row['result']));
-			
-
-		
-		index = 0;
+				schedulesDone.append(row);		
 		allOK = True;
 		
-		reportTableText += "ID    Title              Result              	Verified" + "\n";
+		templateColumns = "{id:4.4} {sourcehost:10.10} {title:18.18} {scheduledfor:14.14} {result:18.18} {verified:20.20} {duration:9.9}\n";
+		reportTableText += templateColumns.format(id="ID", sourcehost="Host", title="Title",
+											scheduledfor="ScheduledFor", 
+											result="Result", verified="Verified",
+											duration="Duration");
+		#reportTableText += "ID    Title              Result              	Verified" + "\n";
 		for schedule in allSchedules:
 			isTried = False;
 			isDone = False;
 			isVerified = False;
 			hadError = False;
 			hasVerificationErrors = False;
+			scheduleDuration = 0;
 			
 			base = d1;
-			itr = croniter(schedule['interval'], base)
-			#itr = croniter("* * 1,12,31,27 * *", base)
-			#itr = croniter("0 12 * * *", base)
+			itr = croniter(schedule['interval'], base);
 			scheduleNextIeration = itr.get_next();
-			#print("Schedule {n} with id {i} and interval {int} next backup date scheduled = {ni}".format(n=schedule['title'], i=schedule['id'],int=schedule['interval'], ni=self.unixToDate(scheduleNextIeration)) + "\n");
-			
-			#reportRow = str(index);
-			reportTableText += "{id:5.5} {title:18.18} ".format(id=str(schedule['id']), title=str(schedule['title']));
+			reportTableText += "{id:4.4} {sourcehost:10.10} {title:18.18} {scheduledfor:14.14} ".format(id=str(schedule['id']), 
+																				sourcehost=schedule['sourcehost'],
+																				title=str(schedule['title']),
+																				scheduledfor=datetime.datetime.fromtimestamp(scheduleNextIeration).strftime('%H:%M:%S'));
 			
 			resultText = '';
 			verifiedText = '';
@@ -453,6 +466,7 @@ class NekBackupMonitor(object):
 				for scheduleDone in schedulesDone:
 					if(schedule['id'] == scheduleDone['Schedule']):
 						isTried = True;
+						scheduleDuration = scheduleDone['duration'];
 						#print("result = {s}".format(s=scheduleDone['result']));
 						if(scheduleDone['result'] == 1):
 							isDone = True;
@@ -485,25 +499,26 @@ class NekBackupMonitor(object):
 						reportText += "Schedule {n} with id {i} had been Tried but not done and no Error(s)".format(n=schedule['title'], i=schedule['id']) + "\n";
 					
 					if(isVerified == True):
-						verifiedText += "	VERIFIED";
+						verifiedText += "VERIFIED";
 						reportText += "Schedule {n} with id {i} is verified".format(n=schedule['title'], i=schedule['id']) + "\n";
 					else:
 						if(hasVerificationErrors == True):
-							verifiedText += "	VERIFICATION ERROR";
+							verifiedText += "VERIFICATION ERROR";
 							reportText += "Schedule {n} with id {i} has verification errors.".format(n=schedule['title'], i=schedule['id']) + "\n";
 						else:
-							verifiedText += "	NO";
+							verifiedText += "NO";
 							reportText += "Schedule {n} with id {i} is not verified".format(n=schedule['title'], i=schedule['id']) + "\n";
 				else:
 					allOK = False;
 					resultText += "Missing";
+					verifiedText += "NO";
 					reportText += "Schedule {n} with id {i} wasn't tried at all".format(n=schedule['title'], i=schedule['id']) + "\n";
 			else:
 				resultText += "Not scheduled" + "\n";
 				#reportText += "Schedule {n} with id {i} wasn't tried at all".format(n=schedule['title'], i=schedule['id']) + "\n";
 				reportText += "Schedule {n} was not scheduled for the date".format(n=schedule['title']);
 			
-			reportTableText += "{result:18.18} {verified:20.20}\n".format(result=resultText, verified=verifiedText);
+			reportTableText += "{result:18.18} {verified:20.20} {duration:9.9}\n".format(result=resultText, verified=verifiedText, duration=self.secondsToTime(scheduleDuration));
 		if(allOK == True):
 			notifyType = self.NOTIFY_OK;
 		elif(allOK == False):
@@ -519,8 +534,9 @@ class NekBackupMonitor(object):
 		
 	def formatForTextDisplay(self, stringText):
 		stringTextFormatted = stringText.replace('OK', bcolors.OKGREEN + "OK" + bcolors.ENDC);
-		stringTextFormatted = stringText.replace('OK AND VERIFIED', bcolors.OKGREEN + "OK AND VERIFIED" + bcolors.ENDC);
+		stringTextFormatted = stringTextFormatted.replace('OK AND VERIFIED', bcolors.OKGREEN + "OK AND VERIFIED" + bcolors.ENDC);
 		stringTextFormatted = stringTextFormatted.replace('(with retries)', bcolors.WARNING + "(with retries)" + bcolors.ENDC);
+		stringTextFormatted = stringTextFormatted.replace('(unverified)', bcolors.WARNING + "(unverified)" + bcolors.ENDC);
 		stringTextFormatted = stringTextFormatted.replace('NO', bcolors.WARNING + "NO" + bcolors.ENDC);
 		stringTextFormatted = stringTextFormatted.replace('VERIFICATION ERROR', bcolors.FAIL + "VERIFICATION ERROR" + bcolors.ENDC);
 		stringTextFormatted = stringTextFormatted.replace('ERROR', bcolors.FAIL + "ERROR" + bcolors.ENDC);
@@ -530,8 +546,9 @@ class NekBackupMonitor(object):
 	
 	def formatForHTMLDisplay(self, stringText):
 		stringHTMLFormatted = stringText.replace('OK', "<span style='color: green;'>" + "OK" + "</span>");
-		stringHTMLFormatted = stringText.replace('OK AND VERIFIED', "<span style='color: green;'>" + "OK AND VERIFIED" + "</span>");
+		stringHTMLFormatted = stringHTMLFormatted.replace('OK AND VERIFIED', "<span style='color: green;'>" + "OK AND VERIFIED" + "</span>");
 		stringHTMLFormatted = stringHTMLFormatted.replace('(with retries)', "<span style='color: darkorange;'>" + "(with retries)" + "</span>");
+		stringHTMLFormatted = stringHTMLFormatted.replace('(unverified)', "<span style='color: darkorange;'>" + "(unverified)" + "</span>");
 		stringHTMLFormatted = stringHTMLFormatted.replace('NO', "<span style='color: darkorange;'>" + "NO" + "</span>");
 		stringHTMLFormatted = stringHTMLFormatted.replace('VERIFICATION ERROR', "<span style='color: red;'>" + "VERIFICATION ERROR" + "</span>");
 		stringHTMLFormatted = stringHTMLFormatted.replace('ERROR', "<span style='color: red;'>" + "ERROR" + "</span>");
@@ -541,13 +558,14 @@ class NekBackupMonitor(object):
 		return stringHTMLFormatted;
 
 class bcolors:
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    UNDERLINE = '\033[4m'
+	HEADER = '\033[95m'
+	OKBLUE = '\033[94m'
+	OKGREEN = '\033[92m'
+	WARNING = '\033[93m'
+	FAIL = '\033[91m'
+	ENDC = '\033[0m'
+	BOLD = '\033[1m'
+	UNDERLINE = '\033[4m'
+	
 if __name__ == '__main__':
 	NekBackupMonitor()
