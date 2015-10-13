@@ -514,7 +514,8 @@ class NekBackupMonitor(object):
 					verifiedText += "NO";
 					reportText += "Schedule {n} with id {i} wasn't tried at all".format(n=schedule['title'], i=schedule['id']) + "\n";
 			else:
-				resultText += "Not scheduled" + "\n";
+				resultText += "Not scheduled";
+				verifiedText += "N/A";
 				#reportText += "Schedule {n} with id {i} wasn't tried at all".format(n=schedule['title'], i=schedule['id']) + "\n";
 				reportText += "Schedule {n} was not scheduled for the date".format(n=schedule['title']);
 			
