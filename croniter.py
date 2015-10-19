@@ -3,7 +3,7 @@
 
 from __future__ import absolute_import, print_function
 import re
-from time import time
+import time
 import datetime
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
@@ -155,8 +155,11 @@ class croniter(object):
         if d.tzinfo is not None:
             d = d.replace(tzinfo=None) - d.utcoffset()
 
-        td = (d - datetime.datetime(1970, 1, 1));
-        return (td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / 10**6
+        #td = (d - datetime.datetime(1970, 1, 1));
+        #return (td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / 10**6
+    
+        timestamp = time.mktime(d.timetuple()); # DO NOT USE IT WITH UTC DATE
+        return timestamp; 
 
     def _timestamp_to_datetime(self, timestamp):
         """
