@@ -4,6 +4,7 @@ import argparse;
 import sqlite3;
 import datetime;
 import time;
+import sys;
 from email.mime.text import MIMEText;
 from email.mime.multipart import MIMEMultipart;
 from subprocess import Popen, PIPE;
@@ -11,7 +12,7 @@ from croniter import croniter;
 from urllib.request import pathname2url;
 
 class NekBackupMonitor(object):
-	
+
 	sqlite_file = './NekBackupMonitor.db';
 	tableSchedules = 'schedules';
 	tableReports = 'reports';
@@ -22,18 +23,14 @@ class NekBackupMonitor(object):
 	NOTIFY_ERROR = 2;
 
 	# Connecting to the database file
-	
 
 	# check if db file exists
-
 	try:
 		dburi = 'file:{}?mode=rw'.format(pathname2url(sqlite_file));
 		conn = sqlite3.connect(dburi, uri=True);
 	except sqlite3.OperationalError:
 		# db doesn't exist. create the schema
 		conn = sqlite3.connect(sqlite_file);
-		with open('schema.sql', 'r') as file:
-			data = file.read().replace('\n', '')
 		conn.execute("""
 			CREATE TABLE IF NOT EXISTS "Schedules" (
 			    "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -58,7 +55,7 @@ class NekBackupMonitor(object):
 		""");
 
 	conn.row_factory = sqlite3.Row;
-	
+
 	def __init__(self):
 		parser = argparse.ArgumentParser(prog='nekbackupmonitor.py');
 
@@ -68,15 +65,15 @@ class NekBackupMonitor(object):
 		p_report.add_argument('RESULT', type=int, help='report resul');
 		p_report.add_argument('DURATION', type=float, help='report duration');
 		p_report.add_argument('-m', '--message', help='report message');
-		
+
 		p_check = argparse.ArgumentParser(add_help=False);
 		p_check.add_argument('-d', '--date', type=str, help='Date. The format is YYYY-mm-dd (e.g. 2015-03-16)');
 		p_check.add_argument('-m', '--email', action="store_true", help='Also email the report.');
 		p_check.add_argument('-b', '--days', type=str, help='Number of days prior. Do a check for the date that is that many days prior.');
-		
+
 		p_schedules = argparse.ArgumentParser(add_help=False);
 		p_schedules.add_argument('-f', '--full', action="store_true", help='List with full details.');
-		
+
 		p_reports = argparse.ArgumentParser(add_help=False);
 		p_reports.add_argument('-s', '--schedule', type=int, help='ID of schedule. List reports specifically for a schedule.');
 		p_reports.add_argument('-r', '--report', type=int, help='ID of report. List details about a specific report.');
@@ -88,16 +85,20 @@ class NekBackupMonitor(object):
 		sp = parser.add_subparsers();
 		sp_list_schedules = sp.add_parser('list-schedules', parents=[p_schedules], help='Lists schedules by default from 7 days prior');
 		sp_list_schedules.set_defaults(which='list-schedules');
-		
+
 		sp_list_reports = sp.add_parser('list-reports', parents=[p_reports], help='Lists reports');
 		sp_list_reports.set_defaults(which='list-reports');
-		
+
 		sp_check = sp.add_parser('check', parents=[p_check], help='Check reports');
 		sp_check.set_defaults(which='check');
-		
+
 		sp_add = sp.add_parser('add', parents=[p_report], help='Add backup report');
 		sp_add.set_defaults(which='add');
-		
+
+		if(len(sys.argv)) == 1:
+			parser.print_usage();
+			exit(0);
+
 		args = parser.parse_args();
 		if(args.which == 'list-schedules'):
 			self.listSchedules(args);
@@ -107,7 +108,6 @@ class NekBackupMonitor(object):
 			self.addReport(args);
 		elif(args.which == 'check'):
 			self.checkReports(args);
-		
 
 	def listSchedules(self, args):
 		print("Listing Schedules");
