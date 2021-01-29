@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/python3
 
 import argparse;
 import sqlite3;
@@ -8,6 +8,7 @@ from email.mime.text import MIMEText;
 from email.mime.multipart import MIMEMultipart;
 from subprocess import Popen, PIPE;
 from croniter import croniter;
+from urllib.request import pathname2url;
 
 class NekBackupMonitor(object):
 	
@@ -21,8 +22,42 @@ class NekBackupMonitor(object):
 	NOTIFY_ERROR = 2;
 
 	# Connecting to the database file
-	conn = sqlite3.connect(sqlite_file); # @UndefinedVariable
-	conn.row_factory = sqlite3.Row; # @UndefinedVariable
+	
+
+	# check if db file exists
+
+	try:
+		dburi = 'file:{}?mode=rw'.format(pathname2url(sqlite_file));
+		conn = sqlite3.connect(dburi, uri=True);
+	except sqlite3.OperationalError:
+		# db doesn't exist. create the schema
+		conn = sqlite3.connect(sqlite_file);
+		with open('schema.sql', 'r') as file:
+			data = file.read().replace('\n', '')
+		conn.execute("""
+			CREATE TABLE IF NOT EXISTS "Schedules" (
+			    "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+			    "Title" TEXT NOT NULL,
+			    "Interval" INTEGER NOT NULL DEFAULT (1),
+			    "SourceHost" TEXT NOT NULL,
+			    "DestinationHost" TEXT NOT NULL,
+			    "SourceDir" TEXT NOT NULL,
+			    "DestinationDir" TEXT NOT NULL,
+			    "Type" INTEGER NOT NULL
+			);
+		""");
+		conn.execute("""
+			CREATE TABLE reports (
+			    "id" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+			    "Schedule" INTEGER NOT NULL,
+			    "date" INTEGER NOT NULL,
+			    "Result" INTEGER NOT NULL,
+			    "message" TEXT,
+			    "duration" INTEGER
+			);
+		""");
+
+	conn.row_factory = sqlite3.Row;
 	
 	def __init__(self):
 		parser = argparse.ArgumentParser(prog='nekbackupmonitor.py');
