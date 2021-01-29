@@ -25,7 +25,6 @@ class NekBackupMonitor(object):
 	conn.row_factory = sqlite3.Row; # @UndefinedVariable
 	
 	def __init__(self):
-
 		parser = argparse.ArgumentParser(prog='nekbackupmonitor.py');
 
 		p_report = argparse.ArgumentParser(add_help=False);
@@ -361,25 +360,30 @@ class NekBackupMonitor(object):
 			dateForChecking = dateForChecking - datetime.timedelta(days=1);
 			self.checkReportsByDate(dateForChecking, doEmailReport);
 	
-	def notify(self, message, notifyType):
+	def notify(self, message, notifyType, dateForChecking):
+		headers = [];
 		if(notifyType == self.NOTIFY_OK):
-			subject = 'NekBackupMonitor Report';
+			subject = 'NekBackupMonitor Report' + dateForChecking.strftime("%Y-%m-%d");
 		elif(notifyType == self.NOTIFY_ERROR):
-			subject = 'ERROR!!! NekBackupMonitor Report';
+			subject = 'ERROR!!! NekBackupMonitor Report ' + dateForChecking.strftime("%Y-%m-%d");
 		
 		print("Sending email...");
-		self.sendEmail(message, subject);
+		self.sendEmail(message, subject, headers);
 		
-	def sendEmail(self, message, subject):
+	def sendEmail(self, message, subject, headers):
 		
 		msg = MIMEMultipart('alternative')
 		msg['Subject'] = subject;
 		msg['From'] = self.fromEmail;
 		msg['To'] = self.toEmail;
-
+		
+		# add headers if any
+		if len(headers) > 0:
+			for h in headers:
+				msg[h[0]] = h[1];
 
 		# Create the body of the message (a plain-text and an HTML version).
-		text = "This is a test message.\nText and html."
+		text = message;
 		html = """\
 		<html>
 		  <head></head>
@@ -414,7 +418,7 @@ class NekBackupMonitor(object):
 		schedulesDone = []
 		allSchedules = self.getAllSchedules();
 		
-		reportTableText += "Checking Reports for date {d}\n\n".format(d=dateForChecking.strftime("%Y-%m-%d"));
+		reportTableText += "Backup report for date {d}\n\n".format(d=dateForChecking.strftime("%Y-%m-%d"));
 		d1 = dateForChecking.replace(hour=0, minute=0, second=0, microsecond=0);
 		d2 = d1 + datetime.timedelta(days=1);
 		d1Timestamp = self.totimestamp(d1);
@@ -531,7 +535,7 @@ class NekBackupMonitor(object):
 		
 		#print(reportText);
 		if(doEmailReport == True):
-			self.notify(self.formatForHTMLDisplay(reportTableText), notifyType);
+			self.notify(self.formatForHTMLDisplay(reportTableText), notifyType, dateForChecking);
 		
 	def formatForTextDisplay(self, stringText):
 		stringTextFormatted = stringText.replace('OK', bcolors.OKGREEN + "OK" + bcolors.ENDC);
