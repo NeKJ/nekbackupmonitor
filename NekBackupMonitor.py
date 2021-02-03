@@ -10,6 +10,8 @@ from email.mime.multipart import MIMEMultipart;
 from subprocess import Popen, PIPE;
 from croniter import croniter;
 from urllib.request import pathname2url;
+from pprint import pprint;
+import shutil;
 
 class NekBackupMonitor(object):
 
@@ -23,6 +25,12 @@ class NekBackupMonitor(object):
   NOTIFY_ERROR = 2;
 
   # Connecting to the database file
+
+  # check if sendmail exists
+  sendmail = shutil.which("sendmail");
+  if sendmail == None:
+    print("ERROR: sendmail does not exist", file=sys.stderr);
+    exit(2);
 
   # check if db file exists
   try:
@@ -57,6 +65,16 @@ class NekBackupMonitor(object):
   conn.row_factory = sqlite3.Row;
 
   def __init__(self):
+    reportMessage = None;
+    
+    # try to read stdin
+
+    # are we piped to another program or connected to an interactive shell (terminal)?
+    if not sys.stdin.isatty(): 
+      # print("Piped to another program");
+      reportMessage = sys.stdin.read();
+      # print("read from stdin the following: " + reportMessage);
+
     parser = argparse.ArgumentParser(prog='nekbackupmonitor.py');
 
     p_report = argparse.ArgumentParser(add_help=False);
@@ -64,7 +82,9 @@ class NekBackupMonitor(object):
     p_report.add_argument('DATETIME', type=str, help='report date and time');
     p_report.add_argument('RESULT', type=int, help='report result');
     p_report.add_argument('DURATION', type=float, help='report duration');
-    p_report.add_argument('-m', '--message', help='report message');
+    
+    if(reportMessage == None):
+      p_report.add_argument('-m', '--message', help='report message');
 
     p_delete_report = argparse.ArgumentParser(add_help=False);
     p_delete_report.add_argument('ID', type=int, help='report ID');
@@ -129,7 +149,7 @@ class NekBackupMonitor(object):
     elif(args.which == 'list-reports'):
       self.listReports(args);
     elif(args.which == 'add'):
-      self.addReport(args);
+      self.addReport(args, reportMessage);
     elif(args.which == 'delete-report'):
       self.deleteReport(args);
     elif(args.which == 'add-schedule'):
@@ -189,9 +209,9 @@ class NekBackupMonitor(object):
       selectedSchedule = self.getSchedule(args.schedule);
       if(selectedSchedule):
         print("Listing Reports for schedule " + selectedSchedule['title'] + " (ID: " + str(selectedSchedule['id']) + ")");
-        c.execute('SELECT id, Schedule, date, Result, duration, message FROM {tn} WHERE schedule = {si}'.format(tn=self.tableReports, si=args.schedule));
+        c.execute('SELECT id, Schedule, date, Result, duration, message FROM {tn} WHERE schedule = :si'.format(tn=self.tableReports), {'si':args.schedule});
       else:
-        print("ERROR: No schedule found with id: " + str(args.schedule));
+        print("ERROR: No schedule found with id: " + str(args.schedule), file=sys.stderr);
         exit(1);
     else:
       if(args.date or args.todate or args.fromdate):
@@ -215,14 +235,14 @@ class NekBackupMonitor(object):
           try:
             numberOfdaysListReports = int(args.days)
           except ValueError:
-            print("Number of Days must be an positve integer e.g. 5 or 120")
+            print("ERROR: Number of Days must be an positve integer e.g. 5 or 120", file=sys.stderr)
             exit(1);
           if(numberOfdaysListReports > 0 and numberOfdaysListReports < 40000):
             listReportsFromDate = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
             listReportsFromDate = listReportsFromDate - datetime.timedelta(days=numberOfdaysListReports);
             listReportsToDate = datetime.datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999);
           else:
-            print("Number of Days must be an positve integer e.g. 5 or 120")
+            print("ERROR: Number of Days must be an positve integer e.g. 5 or 120", file=sys.stderr)
             exit(1);
         else:
           listReportsFromDate = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
@@ -230,7 +250,7 @@ class NekBackupMonitor(object):
           listReportsToDate = datetime.datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999);
         
       if(listReportsToDate < listReportsFromDate):
-        print("To Date must be after the From Date.");
+        print("ERROR: To Date must be after the From Date.", file=sys.stderr);
         exit(1);
       d1 = listReportsFromDate;
       d2 = listReportsToDate;
@@ -238,9 +258,10 @@ class NekBackupMonitor(object):
       d1Timestamp = self.totimestamp(d1);
       d2Timestamp = self.totimestamp(d2);
       print("Listing Reports from date {d1} to {d2}".format(d1=listReportsFromDate.strftime("%Y-%m-%d %H:%M:%S"), d2=listReportsToDate.strftime("%Y-%m-%d %H:%M:%S")));
-      queryString = 'SELECT * FROM {tn} WHERE date BETWEEN {d1} AND {d2} '.format(tn=self.tableReports, d1=d1Timestamp, d2=d2Timestamp)
+      queryString = 'SELECT * FROM {tn} WHERE date BETWEEN :d1 AND :d2 '.format(tn=self.tableReports);
       #print(queryString);
-      c.execute(queryString);
+      # print("d1Timestamp: {d1}, dTimestamp: {d2}".format(d1=d1Timestamp, d2=d2Timestamp));
+      c.execute(queryString, {'d1': d1Timestamp, 'd2': d2Timestamp});
         
     all_rows = c.fetchall();
     index = 0;
@@ -259,7 +280,7 @@ class NekBackupMonitor(object):
       
       reportRow = templateColumns.format(index=str(index), id=str(row['id']), 
                       schedule=scheduleTitle + ' (' + str(row['schedule']) + ')', 
-                      date=self.unixToDate(row['date']), 
+                      date=self.unixToDate(int(row['date'])), 
                       result=self.formatReportResult(row['Result']),
                       duration=self.secondsToTime(row['duration']));
       print(self.formatForTextDisplay(reportRow));
@@ -275,13 +296,16 @@ class NekBackupMonitor(object):
     if(row):
       reportRow = 'ID: ' + str(row['id']) + "\n";
       reportRow += 'Schedule: ' + str(row['Schedule']) + "\n";
-      reportRow += 'Date: ' + self.unixToDate(row['date']) + "\n";
+      reportRow += 'Date: ' + self.unixToDate(int(row['date'])) + "\n";
       reportRow += 'Result: ' + self.formatReportResult(row['Result']) + "\n";
       reportRow += 'Duration: ' + self.secondsToTime((row['duration'])) + "\n";
-      reportRow += 'Message:\n' + row['message'].replace('\\n', "\n") + "\n";
+      if row['message'] != None:
+        reportRow += 'Message:\n' + row['message'].replace('\\n', "\n") + "\n";
+      else:
+        reportRow += 'No Message\n';
       print(self.formatForTextDisplay(reportRow));
     else:
-      print("ERROR: No report found with id: " + str(reportId));
+      print("ERROR: No report found with id: " + str(reportId), file=sys.stderr);
       exit(1);
     
     
@@ -292,42 +316,58 @@ class NekBackupMonitor(object):
     all_rows = c.fetchall();
     return all_rows;
 
-  def addReport(self, args):
+  def addReport(self, args, reportMessage):
     print("Adding report with the following details Schedule = {s}, Datetime = {d}, Result = {r}, Duration = {dr}".format(s=args.SCHEDULE_ID, d=args.DATETIME, r=args.RESULT, dr=args.DURATION));
     
     if(args.DATETIME):
       try:
-        datetimeReport = datetime.datetime.strptime(args.DATETIME, "%Y-%m-%d %H:%M:%S");
+        datetimeReport = int(args.DATETIME);
       except:
-        print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd HH:MM:SS (e.g. 2015-03-16 12:51:23)".format(d=args.DATETIME));
+        print("ERROR: Could not parse timestamp '{s}'. The format is a UNIX timestamp, the number of seconds since the Unix epoch.".format(d=args.DATETIME), file=sys.stderr);
         exit(1);
     
     if(args.DURATION >= 0):
         try:
           reportsDuration = float(args.DURATION)
           if(reportsDuration < 0):
-            print("Duration must be zero or a positive real e.g. 0.0, 5 or 120")
+            print("ERROR: Duration must be zero or a positive real e.g. 0.0, 5 or 120", file=sys.stderr)
             exit(1);
         except ValueError:
-          print("Duration must be zero or a positive real e.g. 0.0, 5 or 120")
+          print("ERROR: Duration must be zero or a positive real e.g. 0.0, 5 or 120", file=sys.stderr)
           exit(1);
+
+    if(hasattr(args, 'message')):
+      reportMessage = args.message;
     
     if(self.scheduleExists(args.SCHEDULE_ID) == True):
       c = self.conn.cursor();
-
-      Reporttimestamp = self.totimestamp(datetimeReport);
       
       try:
-        c.execute("INSERT INTO {tn} (id, Schedule, date, Result, duration, message) VALUES (NULL, {scheduleid}, {date}, {result}, {duration}, \"{message}\")".\
-        format(tn=self.tableReports, scheduleid=args.SCHEDULE_ID, date=Reporttimestamp, result=args.RESULT, duration=reportsDuration, message=args.message));
-        self.conn.commit()
+        
+        c.execute("""
+          INSERT INTO {tableName} (id, Schedule, date, Result, duration, message) 
+          VALUES (NULL, :scheduleid, :date, :result, :duration, :message)
+          """.format(tableName=self.tableReports),
+          {
+            'scheduleid': args.SCHEDULE_ID,
+            'date': datetimeReport,
+            'result': args.RESULT,
+            'duration': reportsDuration,
+            'message': reportMessage
+          });
+
+        self.conn.commit();
+        print("report added");
       except sqlite3.Error as e:
         self.conn.rollback()
-        print("An error occurred: " + e.args[0])
+        print("Failed to execute SQL statement for inserting a new report: ");
+        pprint(e);
 
       self.conn.close()
     else:
       print('ERROR: Schedule {s} does not exist'.format(s=args.SCHEDULE_ID));
+
+
 
   def deleteReport(self, args):
     c = self.conn.cursor();
@@ -346,14 +386,14 @@ class NekBackupMonitor(object):
           self.conn.commit()
         except sqlite3.Error as e: 
           self.conn.rollback()
-          print("Failed to delete report: " + e.args[0])
+          print("ERROR: Failed to delete report: " + e.args[0], file=sys.stderr);
       else:
-          print("User did not select yes. Nothing has been deleted.");
+          print("ERROR: User did not select yes. Nothing has been deleted.", file=sys.stderr);
           self.conn.close();
           exit(1);
 
     else:
-      print("ERROR: No report found with id: " + str(args.ID));
+      print("ERROR: No report found with id: " + str(args.ID), file=sys.stderr);
       self.conn.close()
       exit(1);
 
@@ -375,7 +415,7 @@ class NekBackupMonitor(object):
       self.conn.commit()
     except sqlite3.Error as e: 
       self.conn.rollback()
-      print("An error occurred: " + e.args[0])
+      print("An error occurred: " + e.args[0], file=sys.stderr)
 
     self.conn.close()
 
@@ -402,7 +442,7 @@ class NekBackupMonitor(object):
         if(answer == "y"):
           deleteReports = True;
         else:
-            print("User did not select yes. Nothing has been deleted.");
+            print("ERROR: User did not select yes. Nothing has been deleted.", file=sys.stderr);
             self.conn.close();
             exit(1);
 
@@ -415,10 +455,11 @@ class NekBackupMonitor(object):
         self.conn.commit()
       except sqlite3.Error as e: 
         self.conn.rollback()
-        print("Failed to delete schedule: " + e.args[0])
+        print("ERROR: Failed to delete schedule: " + e.args[0], file=sys.stderr)
+        exit(1);
 
     else:
-      print("ERROR: No schedule found with id: " + str(args.ID));
+      print("ERROR: No schedule found with id: " + str(args.ID), file=sys.stderr);
       exit(1);
 
     self.conn.close()
@@ -448,7 +489,7 @@ class NekBackupMonitor(object):
     try:
       date = datetime.datetime.strptime(stringDate, "%Y-%m-%d");
     except:
-      print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd (e.g. 2015-03-16)".format(d=stringDate));
+      print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd (e.g. 2015-03-16)".format(d=stringDate), file=sys.stderr);
       exit(1);
     return date;
   
@@ -494,19 +535,19 @@ class NekBackupMonitor(object):
       try:
         dateForChecking = datetime.datetime.strptime(args.date, "%Y-%m-%d");
       except:
-        print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd (e.g. 2015-03-16)".format(d=args.date));
-        exit(0);
+        print("ERROR: Could not parse date '{d}'. The format is YYYY-mm-dd (e.g. 2015-03-16)".format(d=args.date), file=sys.stderr);
+        exit(1);
       self.checkReportsByDate(dateForChecking, doEmailReport);
     else:
       if(args.days):
         try:
           numberOfdaysBeforeCheckDate = int(args.days)
         except ValueError:
-          print("Number of Days must be a positive integer e.g. 5 or 120")
+          print("ERROR: Number of Days must be a positive integer e.g. 5 or 120", file=sys.stderr)
           exit(1);
           
         if(numberOfdaysBeforeCheckDate < 1 or numberOfdaysBeforeCheckDate > 40000):
-          print("Number of Days must be a positive integer e.g. 5 or 120")
+          print("ERROR: Number of Days must be a positive integer e.g. 5 or 120", file=sys.stderr)
           exit(1);
           
         dateForChecking = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
@@ -523,7 +564,7 @@ class NekBackupMonitor(object):
   def notify(self, message, notifyType, dateForChecking):
     headers = [];
     if(notifyType == self.NOTIFY_OK):
-      subject = 'NekBackupMonitor Report' + dateForChecking.strftime("%Y-%m-%d");
+      subject = 'NekBackupMonitor Report ' + dateForChecking.strftime("%Y-%m-%d");
     elif(notifyType == self.NOTIFY_ERROR):
       subject = 'ERROR!!! NekBackupMonitor Report ' + dateForChecking.strftime("%Y-%m-%d");
     
@@ -568,7 +609,7 @@ class NekBackupMonitor(object):
 
     # Send the message via our own SMTP server, but don't include the
     # envelope header.
-    p = Popen(["/usr/sbin/sendmail", "-t", "-oi"], stdin=PIPE, universal_newlines=True)
+    p = Popen(["sendmail", "-t", "-oi"], stdin=PIPE, universal_newlines=True)
     p.communicate(msg.as_string())
   
   def checkReportsByDate(self, dateForChecking, doEmailReport):
