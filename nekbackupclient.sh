@@ -19,7 +19,7 @@ EMAIL="jkoutsoumpas@imageaccesscorp.com";
 HOSTNAME=$(hostname);
 
 print_help() {
-  printf "Usage: %s: -n <string> -c <string> -d <string> [-r int] [-m <string>]\n" $0
+  printf "Usage: %s: -n <string> -c <string> -d <string> [-r int] [-m <string>]\n" "$0"
   echo "NOTE: If the -m is ommitted, then message is read from the stdin, if any"
   echo "  -n    Backup Name"
   echo "  -c    Result Code"
@@ -77,10 +77,8 @@ else
 fi
 
 NBMBACKUPDATE="$(date +"%Y-%m-%d %H:%M:%S")";
-COOUTPUT="";
-CORC=0;
 
-if [ ! -z "$REPORTDATE" ]; then
+if [ -n "$REPORTDATE" ]; then
   NBMBACKUPDATE="$REPORTDATE";
 fi
 
@@ -93,7 +91,7 @@ echo "NBMRESULTCODE: $NBMRESULTCODE"
 echo "NBMBACKUPDATE: $NBMBACKUPDATE"
 echo "NBMDURATION: $NBMDURATION"
 
-if [ ! -z "$NBMREPORTMESSAGE" ]; then
+if [ -n "$NBMREPORTMESSAGE" ]; then
   messagelen=${#NBMREPORTMESSAGE}
 
   # if the message is less than 100 chars (or bytes depending the LOCALE), print it
@@ -109,9 +107,9 @@ if ! command -v mail &> /dev/null; then
 fi
 
 # in addition to the usual report to NBM, check if there is an error and immediately notify via email the admin
-if [[ $NBMRESULTCODE -eq 0 ]]; then
+if [[ "$NBMRESULTCODE" -eq 0 ]]; then
   echo "$NBMREPORTMESSAGE" | mail -s "ERROR! $HOSTNAME: Backup $BACKUPNAME" $EMAIL;
-else if [[ $NBMRESULTCODE -eq 3 ]]; then
+elif [[ "$NBMRESULTCODE" -eq 3 ]]; then
   echo "$NBMREPORTMESSAGE" | mail -s "$HOSTNAME: $BACKUPNAME backup done BUT VERIFICATION ERROR!" $EMAIL;
 fi
 
@@ -124,7 +122,7 @@ CO1RC=$?;
 unset NBACKUPMONITOR_ARGS;
 
 if [ $CO1RC -ne 0 ]; then
-  echo <<EOT error: $CO1OUTPUT
+  cat <<EOT error: "$CO1OUTPUT"
 EOT
   echo -e "$CO1OUTPUT" | mail -s "$HOSTNAME: $BACKUPNAME backup could not contact NekBackupMonitor." $EMAIL;
 fi
