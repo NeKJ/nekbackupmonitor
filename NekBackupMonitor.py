@@ -2,7 +2,7 @@
 
 import argparse;
 import sqlite3;
-import datetime; 
+import datetime;
 import time;
 import sys;
 import os;
@@ -17,10 +17,11 @@ import shutil;
 
 class NekBackupMonitor(object):
 
-  sqlite_file = './NekBackupMonitor.db';
+  currentPath = os.path.dirname(os.path.abspath(__file__));
+  sqlite_file = currentPath + '/NekBackupMonitor.db';
   tableSchedules = 'schedules';
   tableReports = 'reports';
-  settings_file = './settings.conf';
+  settings_file = currentPath + '/settings.conf';
 
   # read configuration file
 
@@ -97,15 +98,6 @@ class NekBackupMonitor(object):
   conn.row_factory = sqlite3.Row;
 
   def __init__(self):
-    reportMessage = None;
-    
-    # try to read stdin
-
-    # are we piped to another program or connected to an interactive shell (terminal)?
-    if not sys.stdin.isatty(): 
-      # print("Piped to another program");
-      reportMessage = sys.stdin.read();
-      # print("read from stdin the following: " + reportMessage);
 
     parser = argparse.ArgumentParser(prog='nekbackupmonitor.py');
 
@@ -114,13 +106,12 @@ class NekBackupMonitor(object):
     p_report.add_argument('DATETIME', type=str, help='report date and time');
     p_report.add_argument('RESULT', type=int, help='report result');
     p_report.add_argument('DURATION', type=float, help='report duration');
-    
-    if(reportMessage == None):
-      p_report.add_argument('-m', '--message', help='report message');
+    p_report.add_argument('-m', '--message', help='report message');
+    p_report.add_argument('-i', '--stdin-message', action="store_true", help='report message from stdin');
 
     p_delete_report = argparse.ArgumentParser(add_help=False);
     p_delete_report.add_argument('ID', type=int, help='report ID');
-    
+
     p_add_schedule = argparse.ArgumentParser(add_help=False);
     p_add_schedule.add_argument('TITLE', type=str, help='schedule title');
     p_add_schedule.add_argument('INTERVAL', type=str, help='schedule interval in cron format');
@@ -181,7 +172,7 @@ class NekBackupMonitor(object):
     elif(args.which == 'list-reports'):
       self.listReports(args);
     elif(args.which == 'add'):
-      self.addReport(args, reportMessage);
+      self.addReport(args);
     elif(args.which == 'delete-report'):
       self.deleteReport(args);
     elif(args.which == 'add-schedule'):
@@ -332,7 +323,7 @@ class NekBackupMonitor(object):
       reportRow += 'Result: ' + self.formatReportResult(row['Result']) + "\n";
       reportRow += 'Duration: ' + self.secondsToTime((row['duration'])) + "\n";
       if row['message'] != None:
-        reportRow += 'Message:\n' + row['message'].replace('\\n', "\n") + "\n";
+        reportRow += 'Message:\n"' + row['message'].replace('\\n', "\n") + '"\n';
       else:
         reportRow += 'No Message\n';
       print(self.formatForTextDisplay(reportRow));
@@ -348,9 +339,21 @@ class NekBackupMonitor(object):
     all_rows = c.fetchall();
     return all_rows;
 
-  def addReport(self, args, reportMessage):
-    print("Adding report with the following details Schedule = {s}, Datetime = {d}, Result = {r}, Duration = {dr}".format(s=args.SCHEDULE_ID, d=args.DATETIME, r=args.RESULT, dr=args.DURATION));
-    
+  def addReport(self, args):
+    reportMessage = None;
+    if(args.stdin_message == True):
+      # try to read stdin
+
+      # are we piped to another program or connected to an interactive shell (terminal)?
+      if not sys.stdin.isatty():
+        #print("reading message from stdin");
+        reportMessage = sys.stdin.read();
+      else:
+        print("ERROR: stdin is a terminal instead of piped to another program.", file=sys.stderr);
+        exit(1);
+    elif(args.message):
+        reportMessage = args.message;
+
     if(args.DATETIME):
       try:
         datetimeReport = int(args.DATETIME);
@@ -368,10 +371,20 @@ class NekBackupMonitor(object):
           print("ERROR: Duration must be zero or a positive real e.g. 0.0, 5 or 120", file=sys.stderr)
           exit(1);
 
-    if(hasattr(args, 'message')):
-      reportMessage = args.message;
-    
     if(self.scheduleExists(args.SCHEDULE_ID) == True):
+      msg = None;
+      if len(reportMessage) > 100:
+        msg = "<too big to list> (" + str(len(reportMessage)) + " chars total)";
+      else:
+        msg = "\"" + reportMessage + "\"";
+      print("""Adding report with the following details: 
+Schedule = {s}
+Datetime = {d}
+Result = {r}
+Duration = {dr} seconds
+Message = {msg}
+""".format(s=args.SCHEDULE_ID, d=args.DATETIME, r=args.RESULT, dr=args.DURATION, msg=msg));
+
       c = self.conn.cursor();
       
       try:
