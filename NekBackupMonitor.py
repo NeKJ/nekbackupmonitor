@@ -5,6 +5,8 @@ import sqlite3;
 import datetime; 
 import time;
 import sys;
+import os;
+import configparser;
 from email.mime.text import MIMEText;
 from email.mime.multipart import MIMEMultipart;
 from subprocess import Popen, PIPE;
@@ -18,19 +20,49 @@ class NekBackupMonitor(object):
   sqlite_file = './NekBackupMonitor.db';
   tableSchedules = 'schedules';
   tableReports = 'reports';
-  fromEmail = 'email@example.com';
-  toEmail = 'email@example.com';
+  settings_file = './settings.conf';
+
+  # read configuration file
+
+  config = configparser.ConfigParser()
+
+  if(os.path.exists(settings_file) == False):
+    print("ERROR: settings file settings.conf does not exist", file=sys.stderr);
+    exit(2);
+
+  config.read(settings_file);
+  
+  if(not 'General' in config):
+    print("ERROR: settings file does not contain a [General] section", file=sys.stderr);
+    exit(3);
+
+  if(not 'ToEmail' in config['General']):
+    print("ERROR: The settings file does not contain a ToEmail setting under the [General] section", file=sys.stderr);
+    exit(3);
+  if(not 'FromEmail' in config['General']):
+    print("ERROR: The settings file does not contain a FromEmail setting under the [General] section", file=sys.stderr);
+    exit(3);
+
+  toEmail = config['General']['ToEmail'];
+  fromEmail = config['General']['FromEmail']
+
+  if(not toEmail):
+    print("ERROR: The ToEmail setting is empty", file=sys.stderr);
+    exit(3);
+  if(not fromEmail):
+    print("ERROR: The FromEmail setting is empty", file=sys.stderr);
+    exit(3);
 
   NOTIFY_OK = 1;
   NOTIFY_ERROR = 2;
-
-  # Connecting to the database file
 
   # check if sendmail exists
   sendmail = shutil.which("sendmail");
   if sendmail == None:
     print("ERROR: sendmail does not exist", file=sys.stderr);
     exit(2);
+
+  # Connecting to the database file
 
   # check if db file exists
   try:
