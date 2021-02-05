@@ -227,14 +227,14 @@ class NekBackupMonitor(object):
                         sourcehost=str(row['sourcehost']), 
                         destinationhost=str(row['destinationhost']));
         print(self.formatForTextDisplay(reportRow));
-    
+
   def listReports(self, args):
     c = self.conn.cursor();
-    
+
     if(args.report):
       self.displayReport(args.report);
       return;
-    
+
     if(args.schedule):
       selectedSchedule = self.getSchedule(args.schedule);
       if(selectedSchedule):
@@ -278,43 +278,43 @@ class NekBackupMonitor(object):
           listReportsFromDate = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0);
           listReportsFromDate = listReportsFromDate - datetime.timedelta(days=7);
           listReportsToDate = datetime.datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999);
-        
+
       if(listReportsToDate < listReportsFromDate):
         print("ERROR: To Date must be after the From Date.", file=sys.stderr);
         exit(1);
+
       d1 = listReportsFromDate;
       d2 = listReportsToDate;
-      #d2 = d1 + datetime.timedelta(days=1);
       d1Timestamp = self.totimestamp(d1);
       d2Timestamp = self.totimestamp(d2);
       print("Listing Reports from date {d1} to {d2}".format(d1=listReportsFromDate.strftime("%Y-%m-%d %H:%M:%S"), d2=listReportsToDate.strftime("%Y-%m-%d %H:%M:%S")));
       queryString = 'SELECT * FROM {tn} WHERE date BETWEEN :d1 AND :d2 '.format(tn=self.tableReports);
       #print(queryString);
-      # print("d1Timestamp: {d1}, dTimestamp: {d2}".format(d1=d1Timestamp, d2=d2Timestamp));
       c.execute(queryString, {'d1': d1Timestamp, 'd2': d2Timestamp});
-        
+
     all_rows = c.fetchall();
     index = 0;
-    templateColumns = "{index:4.4} {id:4.4} {schedule:25.25} {date:20.20} {result:20.20} {duration:9.9}";
+    templateColumns = "{index:4.4s} {id:4.4s} {schedule:25.25s} {date:20.20s} {result:20.20s} {dur:9.9s}";
     reportHeader = templateColumns.format(index="#", id="ID", schedule="Schedule (id)", 
-                      date="Date", result="Result", duration="Duration");
-                      
+                      date="Date", result="Result", dur="Duration");
+
     print(reportHeader);
     for row in all_rows:
       index = index + 1;
       scheduleTitle = 'N/A';
-      
+
       schedule = self.getSchedule(row['schedule']);
       if(schedule):
         scheduleTitle = schedule['title'];
-      
+
       reportRow = templateColumns.format(index=str(index), id=str(row['id']), 
                       schedule=scheduleTitle + ' (' + str(row['schedule']) + ')', 
-                      date=self.unixToDate(int(row['date'])), 
-                      result=self.formatReportResult(row['Result']),
-                      duration=self.secondsToTime(row['duration']));
+                      dur=str(self.secondsToTime(row['duration'])),
+                      result=str(self.formatReportResult(row['result'])),
+                      date=str(self.unixToDate(int(row['date']))),
+                      );
       print(self.formatForTextDisplay(reportRow));
-  
+
   def displayReport(self, reportId):
     c = self.conn.cursor();
     
@@ -405,10 +405,10 @@ class NekBackupMonitor(object):
       try:
         reportsDuration = float(args.duration_in_seconds)
         if(reportsDuration < 0):
-          print("ERROR: Duration must be zero or a positive real e.g. 0.0, 5 or 120", file=sys.stderr)
+          print("ERROR: Duration must be zero or a positive float e.g. 0.0, 5 or 120", file=sys.stderr)
           exit(1);
       except ValueError:
-        print("ERROR: Duration must be zero or a positive real e.g. 0.0, 5 or 120", file=sys.stderr)
+        print("ERROR: Duration must be zero or a positive float e.g. 0.0, 5 or 120", file=sys.stderr)
         exit(1);
 
     if(self.scheduleExists(args.schedule_id) == True):
@@ -427,7 +427,7 @@ Message = {msg}
 """.format(s=args.schedule_id, d=datetimeReport, r=self.formatReportResult(reportResult), dr=reportsDuration, msg=msg));
 
       c = self.conn.cursor();
-      
+
       try:
         
         c.execute("""
@@ -437,13 +437,13 @@ Message = {msg}
           {
             'scheduleid': args.schedule_id,
             'date': datetimeReport,
-            'result': args.result,
+            'result': reportResult.value ,
             'duration': reportsDuration,
             'message': reportMessage
           });
 
         self.conn.commit();
-        print("report added");
+        #print("report added");
         if(reportResult == ReportResult.ERROR or reportResult == ReportResult.DONE_BUT_VERIFICATION_ERROR):
           if(self.sendEmailImmediatelyOnErrorReport == True):
             print("Sending email...");
@@ -460,13 +460,11 @@ Message = {msg}
 
       except sqlite3.Error as e:
         self.conn.rollback()
-        print("Failed to execute SQL statement for inserting a new report: ");
+        print("Failed to execute SQL statement for inserting a new report: " + e.args[0]);
 
       self.conn.close()
     else:
       print('ERROR: Schedule with ID {s} does not exist'.format(s=args.schedule_id));
-
-
 
   def deleteReport(self, args):
     c = self.conn.cursor();
@@ -565,15 +563,17 @@ Message = {msg}
 
   def formatReportResult(self, reportResult):
     formmatedResult = '';
-    if(reportResult == ReportResult.DONE):
+    if(ReportResult(reportResult) == ReportResult.DONE):
       formmatedResult = 'OK (unverified)';
-    elif(reportResult == ReportResult.DONE_AND_VERIFIED):
+    elif(ReportResult(reportResult) == ReportResult.DONE_AND_VERIFIED):
       formmatedResult = 'OK AND VERIFIED';
-    elif(reportResult == ReportResult.DONE_BUT_VERIFICATION_ERROR):
+    elif(ReportResult(reportResult) == ReportResult.DONE_BUT_VERIFICATION_ERROR):
       formmatedResult = 'VERIFICATION ERROR';
-    elif(reportResult == ReportResult.ERROR):
+    elif(ReportResult(reportResult) == ReportResult.ERROR):
       formmatedResult = 'ERROR';
-    
+    else:
+    	formmatedResult = reportResult;
+
     return formmatedResult;
   
   def unixToDate(self, reportTimestamp):
