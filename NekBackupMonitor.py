@@ -7,6 +7,7 @@ import time;
 import sys;
 import os;
 import configparser;
+from enum import Enum;
 from email.mime.text import MIMEText;
 from email.mime.multipart import MIMEMultipart;
 from subprocess import Popen, PIPE;
@@ -102,12 +103,12 @@ class NekBackupMonitor(object):
     parser = argparse.ArgumentParser(prog='nekbackupmonitor.py');
 
     p_report = argparse.ArgumentParser(add_help=False);
-    p_report.add_argument('SCHEDULE_ID', type=int, help='report schedule id');
-    p_report.add_argument('DATETIME', type=str, help='report date and time');
-    p_report.add_argument('RESULT', type=int, help='report result');
-    p_report.add_argument('DURATION', type=float, help='report duration');
-    p_report.add_argument('-m', '--message', help='report message');
-    p_report.add_argument('-i', '--stdin-message', action="store_true", help='report message from stdin');
+    p_report.add_argument('-s', '--schedule-id', type=int, help='the Schedule ID of the running task');
+    p_report.add_argument('-t', '--starting-timestamp', type=str, help='the UNIX timestamp of the start of the task run');
+    p_report.add_argument('-r', '--result', choices=['done', 'done-and-verified', 'done-but-verify-error', 'failed'], help='the result of the task run');
+    p_report.add_argument('-d', '--duration-in-seconds', type=float, help='(optional) the duration of the running task in seconds');
+    p_report.add_argument('-m', '--message', help='A detailed message (e.g. output log) associated with the running of the task.');
+    p_report.add_argument('--stdin-message', action="store_true", help='Read the associated detailed message from the stdin. For messages that exceed 1000 chars use this method, instead of the -m option above.');
 
     p_delete_report = argparse.ArgumentParser(add_help=False);
     p_delete_report.add_argument('ID', type=int, help='report ID');
@@ -340,8 +341,18 @@ class NekBackupMonitor(object):
     return all_rows;
 
   def addReport(self, args):
+
+    if(args.schedule_id == None):
+      print("ERROR: no schedule ID has been specified.", file=sys.stderr);
+      exit(1);
+
     reportMessage = None;
     if(args.stdin_message == True):
+      # make sure there is no -m specified
+      if(args.message != None):
+        print("ERROR: --stden-message and -m cannot be used together.", file=sys.stderr);
+        exit(1);
+
       # try to read stdin
 
       # are we piped to another program or connected to an interactive shell (terminal)?
@@ -354,36 +365,60 @@ class NekBackupMonitor(object):
     elif(args.message):
         reportMessage = args.message;
 
-    if(args.DATETIME):
-      try:
-        datetimeReport = int(args.DATETIME);
-      except:
-        print("ERROR: Could not parse timestamp '{s}'. The format is a UNIX timestamp, the number of seconds since the Unix epoch.".format(d=args.DATETIME), file=sys.stderr);
-        exit(1);
+    if(args.result == None):
+      print("ERROR: no result has been specified.", file=sys.stderr);
+      exit(1);
+
+    # ['done', 'done-and-verified', 'done-but-verify-error', 'failed']
+    reportResult = None;
+    if args.result == 'done':
+      reportResult = ReportResult.DONE;
+    elif args.result == 'done-and-verified':
+      reportResult = ReportResult.DONE_AND_VERIFIED;
+    elif args.result == 'done-but-verify-error':
+      reportResult = ReportResult.DONE_BUT_VERIFICATION_ERROR;
+    elif args.result == 'failed':
+      reportResult = ReportResult.ERROR;
+    else:
+      print("ERROR: unknown result value has been specified: " + args.result, file=sys.stderr);
+      exit(1);
+
+    if(args.starting_timestamp == None):
+      print("ERROR: no starting UNIX timestamp has been specified.", file=sys.stderr);
+      exit(1);
     
-    if(args.DURATION >= 0):
-        try:
-          reportsDuration = float(args.DURATION)
-          if(reportsDuration < 0):
-            print("ERROR: Duration must be zero or a positive real e.g. 0.0, 5 or 120", file=sys.stderr)
-            exit(1);
-        except ValueError:
+    try:
+      datetimeReport = int(args.starting_timestamp);
+    except:
+      print("ERROR: Could not parse timestamp '{s}'. The format is a UNIX timestamp, the number of seconds since the Unix epoch.".format(d=args.DATETIME), file=sys.stderr);
+      exit(1);
+    
+    if(args.duration_in_seconds == None):
+      reportsDuration = 0;
+    else:
+      try:
+        reportsDuration = float(args.duration_in_seconds)
+        if(reportsDuration < 0):
           print("ERROR: Duration must be zero or a positive real e.g. 0.0, 5 or 120", file=sys.stderr)
           exit(1);
+      except ValueError:
+        print("ERROR: Duration must be zero or a positive real e.g. 0.0, 5 or 120", file=sys.stderr)
+        exit(1);
 
-    if(self.scheduleExists(args.SCHEDULE_ID) == True):
+    if(self.scheduleExists(args.schedule_id) == True):
       msg = None;
-      if len(reportMessage) > 100:
-        msg = "<too big to list> (" + str(len(reportMessage)) + " chars total)";
-      else:
-        msg = "\"" + reportMessage + "\"";
+      if(reportMessage != None):
+        if len(reportMessage) > 100:
+          msg = "<too big to list> (" + str(len(reportMessage)) + " chars total)";
+        else:
+          msg = "\"" + reportMessage + "\"";
       print("""Adding report with the following details: 
 Schedule = {s}
 Datetime = {d}
 Result = {r}
 Duration = {dr} seconds
 Message = {msg}
-""".format(s=args.SCHEDULE_ID, d=args.DATETIME, r=args.RESULT, dr=args.DURATION, msg=msg));
+""".format(s=args.schedule_id, d=datetimeReport, r=self.formatReportResult(reportResult), dr=reportsDuration, msg=msg));
 
       c = self.conn.cursor();
       
@@ -394,9 +429,9 @@ Message = {msg}
           VALUES (NULL, :scheduleid, :date, :result, :duration, :message)
           """.format(tableName=self.tableReports),
           {
-            'scheduleid': args.SCHEDULE_ID,
+            'scheduleid': args.schedule_id,
             'date': datetimeReport,
-            'result': args.RESULT,
+            'result': args.result,
             'duration': reportsDuration,
             'message': reportMessage
           });
@@ -410,7 +445,7 @@ Message = {msg}
 
       self.conn.close()
     else:
-      print('ERROR: Schedule {s} does not exist'.format(s=args.SCHEDULE_ID));
+      print('ERROR: Schedule with ID {s} does not exist'.format(s=args.schedule_id));
 
 
 
@@ -511,13 +546,13 @@ Message = {msg}
 
   def formatReportResult(self, reportResult):
     formmatedResult = '';
-    if(reportResult == 1):
+    if(reportResult == ReportResult.DONE):
       formmatedResult = 'OK (unverified)';
-    elif(reportResult == 2):
+    elif(reportResult == ReportResult.DONE_AND_VERIFIED):
       formmatedResult = 'OK AND VERIFIED';
-    elif(reportResult == 3):
+    elif(reportResult == ReportResult.DONE_BUT_VERIFICATION_ERROR):
       formmatedResult = 'VERIFICATION ERROR';
-    elif(reportResult == 0):
+    elif(reportResult == ReportResult.ERROR):
       formmatedResult = 'ERROR';
     
     return formmatedResult;
@@ -548,12 +583,9 @@ Message = {msg}
 
     queryString = 'SELECT id FROM {tn} WHERE id = {si}'.format(tn=self.tableSchedules, si=scheduleId);
     c.execute(queryString);
-    #print("queryString={qs}, scheduleid={si}, rowcount={rc}".format(qs=queryString, si=scheduleId, rc=c.rowcount));
     if c.fetchone() != None:
-      #print("true");
       return True;
     else:
-      #print("false");
       return False;
       
   def getSchedule(self, scheduleId):
@@ -817,6 +849,12 @@ class bcolors:
   ENDC = '\033[0m'
   BOLD = '\033[1m'
   UNDERLINE = '\033[4m'
+
+class ReportResult(Enum):
+  ERROR = 0
+  DONE = 1
+  DONE_AND_VERIFIED = 2
+  DONE_BUT_VERIFICATION_ERROR = 3
   
 if __name__ == '__main__':
   NekBackupMonitor()
