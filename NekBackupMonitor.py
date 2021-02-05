@@ -13,7 +13,6 @@ from email.mime.multipart import MIMEMultipart;
 from subprocess import Popen, PIPE;
 from croniter import croniter;
 from urllib.request import pathname2url;
-from pprint import pprint;
 import shutil;
 
 class NekBackupMonitor(object):
@@ -44,6 +43,13 @@ class NekBackupMonitor(object):
   if(not 'FromEmail' in config['General']):
     print("ERROR: The settings file does not contain a FromEmail setting under the [General] section", file=sys.stderr);
     exit(3);
+  if(not 'SendEmailImmediatelyOnErrorReport' in config['General']):
+    print("ERROR: The settings file does not contain a SendEmailImmediatelyOnErrorReport setting under the [General] section", file=sys.stderr);
+    exit(3);
+
+  sendEmailImmediatelyOnErrorReport = False;
+  if(config['General']['SendEmailImmediatelyOnErrorReport'] == "yes"):
+    sendEmailImmediatelyOnErrorReport = True;
 
   toEmail = config['General']['ToEmail'];
   fromEmail = config['General']['FromEmail']
@@ -438,10 +444,23 @@ Message = {msg}
 
         self.conn.commit();
         print("report added");
+        if(reportResult == ReportResult.ERROR or reportResult == ReportResult.DONE_BUT_VERIFICATION_ERROR):
+          if(self.sendEmailImmediatelyOnErrorReport == True):
+            print("Sending email...");
+            rowSchedule = self.getSchedule(args.schedule_id);
+            scheduleTitle = "";
+            if(rowSchedule != None):
+              scheduleTitle = rowSchedule['title'];
+            if(reportResult == ReportResult.DONE_BUT_VERIFICATION_ERROR):
+              subject = "Backup verification error for {title}".format(title=scheduleTitle);
+            if(reportResult == ReportResult.ERROR):
+              subject = "Backup error for {title}".format(title=scheduleTitle);
+            message = reportMessage;
+            self.sendEmail(message, subject, []);
+
       except sqlite3.Error as e:
         self.conn.rollback()
         print("Failed to execute SQL statement for inserting a new report: ");
-        pprint(e);
 
       self.conn.close()
     else:
