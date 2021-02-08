@@ -722,7 +722,7 @@ Message = {msg}
     d2Timestamp = self.totimestamp(d2);
     #print("d1 = {d1}, d2 = {d2}".format(d1=d1, d2=d2));
     #exit(0);
-    
+
     c = self.conn.cursor();
 
     # 1) Contents of all columns for row that match a certain value in 1 column
@@ -734,12 +734,13 @@ Message = {msg}
       rowSchedule = self.getSchedule(row['Schedule']);
       #print(rowSchedule);
       if(rowSchedule != None):
-        schedulesDone.append(row);    
+        schedulesDone.append(row);
     allOK = True;
-    
-    templateColumns = "{id:4.4} {sourcehost:10.10} {title:18.18} {scheduledfor:14.14} {result:18.18} {verified:20.20} {duration:9.9}\n";
-    reportTableText += templateColumns.format(id="ID", sourcehost="Host", title="Title",
-                      scheduledfor="ScheduledFor", 
+
+    templateColumns = "{id:4.4} {sourcehost:14.14} {desthost:14.14} {title:18.18} {scheduledfor:14.14} {result:18.18} {verified:20.20} {duration:9.9}\n";
+    reportTableText += templateColumns.format(id="SID", sourcehost="Source", 
+    									desthost="Dest.", title="Title",
+                      scheduledfor="Sched.Time", 
                       result="Result", verified="Verified",
                       duration="Duration");
     #reportTableText += "ID    Title              Result                Verified" + "\n";
@@ -750,15 +751,15 @@ Message = {msg}
       hadError = False;
       hasVerificationErrors = False;
       scheduleDuration = 0;
-      
+
       base = d1;
       itr = croniter(schedule['interval'], base);
       scheduleNextIeration = itr.get_next();
-      reportTableText += "{id:4.4} {sourcehost:10.10} {title:18.18} {scheduledfor:14.14} ".format(id=str(schedule['id']), 
-                                        sourcehost=schedule['sourcehost'],
-                                        title=str(schedule['title']),
-                                        scheduledfor=datetime.datetime.fromtimestamp(scheduleNextIeration).strftime('%H:%M:%S'));
-      
+      reportTableText += "{id:4.4} {sourcehost:14.14} {desthost:14.14} {title:18.18} {scheduledfor:14.14} ".format(id=str(schedule['id']), 
+                         sourcehost=schedule['sourcehost'], desthost=schedule['destinationhost'],
+                         title=str(schedule['title']), 
+                         scheduledfor=datetime.datetime.fromtimestamp(scheduleNextIeration).strftime('%H:%M:%S'));
+
       resultText = '';
       verifiedText = '';
       # check if it is scheduled for the date of checking
@@ -811,7 +812,7 @@ Message = {msg}
               reportText += "Schedule {n} with id {i} is not verified".format(n=schedule['title'], i=schedule['id']) + "\n";
         else:
           allOK = False;
-          resultText += "Missing";
+          resultText += "MISSING";
           verifiedText += "NO";
           reportText += "Schedule {n} with id {i} wasn't tried at all".format(n=schedule['title'], i=schedule['id']) + "\n";
       else:
